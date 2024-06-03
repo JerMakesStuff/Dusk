@@ -42,15 +42,15 @@ run :: proc(game:^Game) {
             raylib.UpdateMusicStream(game.music)
         }
 
-        // Begin Drawing
+        // BEGIN DRAWING
         raylib.BeginDrawing()
         raylib.EndDrawing()
         raylib.ClearBackground(game.backgroundColor)
         
-        // Update Game
+        // UPDATE GAME
         if !game->update(deltaTime, runTime) do break
     
-        // Free our temp allocator at the end of the frame
+        // FREE OUR TEMP ALLOCATOR AT THE END OF THE FRAME
         free_all(context.temp_allocator)
     }
 

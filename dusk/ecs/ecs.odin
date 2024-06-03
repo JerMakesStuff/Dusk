@@ -30,11 +30,8 @@ createEntity :: proc(world:^World) -> Entity {
 deleteEntity :: proc(world:^World, ent:Entity) {
     append(&world.freeEntIds, ent)
     world.entStorage[int(ent)] = Entity(-1)
-    for t, &lookup in world.entityComponentLookup {
-        _, ok := lookup[ent]
-        if ok {
-            removeComponentWithTypeId(world, ent, t)
-        }
+    for t in world.entityComponentLookup {
+        removeComponentWithTypeId(world, ent, t)
     }
 }
 
@@ -44,26 +41,28 @@ isEntityValid :: proc(world:^World, ent:Entity) -> bool {
 
 addComponent :: proc(world:^World, ent:Entity, comp:$T) {
     tid := typeid_of(T)
-    _, ok := world.compStorage[tid]
-    if !ok {
-        tStorage := make([dynamic]T)
-        world.compStorage[tid] = transmute(mem.Raw_Dynamic_Array)tStorage
+    _, storageOk := world.compStorage[tid]
+    if !storageOk {
+        newStorage := make([dynamic]T)
+        world.compStorage[tid] = transmute(mem.Raw_Dynamic_Array)newStorage
+        log.debug("[DUSK][ECS] Creating storage for Components of type", tid)
     }
-    compId:int = -1
+    compID:int = -1
     storage := transmute(^[dynamic]T)&world.compStorage[tid]
     if len(world.freeCompIds[tid]) != 0 {
-        compId = pop(&world.freeCompIds[tid])
-        storage[compId] = comp
+        compID = pop(&world.freeCompIds[tid])
+        storage[compID] = comp
     } else {
-        compId = len(storage)
+        compID = len(storage)
         append(storage, comp)
     }
-    lookup, ok1 := &world.entityComponentLookup[tid]
-    if !ok1 {
+    lookup, lookupOK := &world.entityComponentLookup[tid]
+    if !lookupOK {
         world.entityComponentLookup[tid] = make(map[Entity]int)
         lookup = &world.entityComponentLookup[tid]
+        log.debug("[DUSK][ECS] Creating lookup table for Components of type", tid)
     } 
-    lookup[ent] = compId
+    lookup[ent] = compID
 }
 
 removeComponent :: proc(world:^World, ent:Entity, comp:$T) {
@@ -72,19 +71,19 @@ removeComponent :: proc(world:^World, ent:Entity, comp:$T) {
 }
 
 removeComponentWithTypeId :: proc(world:^World, ent:Entity, tid:typeid) {
-    lookup , ok1 := &world.entityComponentLookup[tid]
-    if !ok1 {
-        log.warn("Failed to find lookup for comp type:", tid)
+    lookup , lookupOK := &world.entityComponentLookup[tid]
+    if !lookupOK {
+        log.debug("[DUSK][ECS] No entities have component of type", tid)
         return
     }
-    compId, ok2 := lookup[ent]
-    if !ok2 {
-        log.warn("Failed to find comp index of type", tid, "for Entity", ent)
+    compID, compIDOk := lookup[ent]
+    if !compIDOk {
+        log.debug("[DUSK][ECS] Entity",ent,"has no component of type", tid)
         return
     }
-    append(&world.freeCompIds[tid], compId)
+    append(&world.freeCompIds[tid], compID)
     delete_key(lookup, ent)
-    log.debug("Removed Component of type",tid,"from Entity:",ent)
+    log.debug("[DUSK][ECS] Removed Component of type",tid,"from Entity:",ent)
 }
 
 queryComponent :: proc(world:^World, $T:typeid) -> []Entity {
@@ -120,15 +119,25 @@ queryComponents :: proc(world:^World, comps: ..typeid) -> []Entity {
 
 getComponent :: proc(world: ^World, ent:Entity, $T:typeid) -> ^T {
     tid := typeid_of(T)
-    _, ok := world.compStorage[tid]
-    if !ok do log.panic("[DUSK][ECS] Attepted get get component of type", tid)
+    _, storageOk := world.compStorage[tid]
+    if !storageOk {
+        log.warn("[DUSK][ECS] No storage for component type", tid)
+        return nil
+    }
+    storage := transmute(^[dynamic]T)&world.compStorage[tid]
 
     lookup, lookupOK := &world.entityComponentLookup[tid]
-    if !lookupOK do log.panic("[DUSK][ECS] entity",ent,"has no component of type", tid)
-    compid, compOk := lookup[ent]
-    if !compOk do log.panic("[DUSK][ECS] entity",ent,"has no component of type", tid)
+    if !lookupOK {
+        log.debug("[DUSK][ECS] No entities have component of type", tid)
+        return nil
+    }
+        
+    compID, compIDOk := lookup[ent]
+    if !compIDOk {
+         log.debug("[DUSK][ECS] Entity",ent,"has no component of type", tid)
+        return nil
+    }
     
-    storage := transmute(^[dynamic]T)&world.compStorage[tid]
-    retVal:^T = &storage[compid]
+    retVal:^T = &storage[compID]
     return retVal
 }
