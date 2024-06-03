@@ -1,0 +1,10 @@
+{
+	version: "0.0.1-alpha",
+	description: "Dusk is a small game template / framework or whatever you want to call it.",
+	url: "https://github.com/JerMakesStuff/Dusk",
+	readme: "README.md",
+	license: "MIT",
+	keywords:["dusk"],
+	dependencies: {
+	}
+}
