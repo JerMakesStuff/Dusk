@@ -29,7 +29,7 @@ I've only tired this on windows so far i'll update this when i get a chance to t
 
 ## Minimal Example
 
-see [Demo](demo/demo.odin) for a larger example
+see the [demo](demo/demo.odin) for a larger example
 
 ```Odin
 import "core:log"
