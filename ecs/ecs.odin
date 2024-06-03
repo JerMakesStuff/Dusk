@@ -24,6 +24,7 @@ createEntity :: proc(world:^World) -> Entity {
     }
     ent:Entity = Entity(len(world.entStorage))
     append(&world.entStorage, ent)
+    log.debug("[DUSK][ECS] Created Entity", ent)
     return ent
 }
 
@@ -61,8 +62,10 @@ addComponent :: proc(world:^World, ent:Entity, comp:$T) {
         world.entityComponentLookup[tid] = make(map[Entity]int)
         lookup = &world.entityComponentLookup[tid]
         log.debug("[DUSK][ECS] Creating lookup table for Components of type", tid)
-    } 
+    }
     lookup[ent] = compID
+    log.debug("[DUSK][ECS] Components of type", tid, "to Entity", ent)
+   
 }
 
 removeComponent :: proc(world:^World, ent:Entity, comp:$T) {
@@ -102,11 +105,15 @@ queryComponents :: proc(world:^World, comps: ..typeid) -> []Entity {
 
     compCounts := len(comps)
     for comp in comps {
-        ents := &world.entityComponentLookup[comp]
-        for ent in ents {
-            _, hasEnt := matchCounts[ent]
-            if !hasEnt do matchCounts[ent] = 1
-            else do matchCounts[ent] += 1
+        lookup, lookupOk := &world.entityComponentLookup[comp]
+        if lookupOk {
+            for ent in lookup {
+                _, hasEnt := matchCounts[ent]
+                if !hasEnt do matchCounts[ent] = 1
+                else do matchCounts[ent] += 1
+            }
+        } else {    
+            log.debug("[DUSK][ECS] No entities have component of type", comp)
         }
     }
 

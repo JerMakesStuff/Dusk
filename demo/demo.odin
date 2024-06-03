@@ -9,9 +9,9 @@ import "core:math"
 import "core:strings"
 import "vendor:raylib"
 
-import dusk  "../dusk"
-import delay "../dusk/delay"
-import ecs   "../dusk/ecs"
+import dusk  ".."
+import delay "../delay"
+import ecs   "../ecs"
 
 main :: proc() {
     demoGame : Demo
