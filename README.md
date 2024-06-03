@@ -5,6 +5,12 @@
 Dusk is a small game template / framework or whatever you want to call it.
 I made it to make the start of a project more enjoyable for me.
 
+## Features
+
+* Abstracts away some of the boiler plate initialization and gameloop stuff.
+* ECS
+* Delayed procedure calls
+
 ## Roadmap
 
 In no particular order here are some things I want to add.
@@ -14,6 +20,7 @@ In no particular order here are some things I want to add.
 * Some prebuilt Components and Systems for doing standard stuff like drawing sprites.
 * Scripting via lua
 * Abstract away more of raylib by default
+* Build in settings saving and loading for graphics and sound options
 
 ## Build the demo
 
@@ -32,34 +39,74 @@ I've only tired this on windows so far i'll update this when i get a chance to t
 see the [demo](demo/demo.odin) for a larger example
 
 ```Odin
+package example
+
 import "core:log"
+
 import dusk "path/to/dusk"
+import ecs "path/to/dusk/ecs"
+import delay "path/to/dusk/delay"
 
 main :: proc() {
     myGame : MyGame
-    myGame.start = GameStart
-    myGame.update = GameUpdate
-    myGame.shutdown = GameShutdown
+    myGame.start = gameStart
+    myGame.update = gameUpdate
+    myGame.shutdown = gameShutdown
     myGame.name = "MyGame"
     dusk.run(&myGame)
 }
 
 MyGame :: struct {
     using game:dusk.Game,
+    world:ecs.World,
 }
 
-GameStart :: proc(game:^dusk.Game) -> bool {
+DemoComponent :: struct {
+    someData:u32,
+}
+
+DemoSystem :: proc(game:^MyGame) {
+    using self := game
+    entities := ecs.queryComponents(&world, DemoComponent)
+    for ent in entities {
+        demoComp := ecs.getComponent(&world, ent, DemoComponent)
+        demoComp.someData += 1
+    }
+}
+
+LogMyComponents :: proc(ud:any) {
+    game := transmute(^MyGame)ud.data
+    entities := ecs.queryComponents(&game.world, DemoComponent)
+    for ent in entities {
+        demoComp := ecs.getComponent(&game.world, ent, DemoComponent)
+        log.info("[Example][DemoComponent] someData:", demoComp.someData)
+    }
+}
+
+gameStart :: proc(game:^dusk.Game) -> bool {
     using self:^MyGame = transmute(^MyGame)game
-    log.info("[MyGame]","GameStart")
+    log.info("[MyGame]","gameStart")
+
+    // Create some entities with the DemoComponent component
+    for i in 0..<10 {
+        ent := ecs.createEntity(&world)
+        ecs.addComponent(&world, ent, DemoComponent{ someData = u32(i)})
+    }
+
+    // Log out the values of Entities with DemoComponent in 3 seconds
+    delay.start(LogMyComponents, 3, game)
+    
+    return true
 }
 
-GameUpdate :: proc(game:^dusk.Game, deltTime:f32, runTime:f32) -> bool {
+gameUpdate :: proc(game:^dusk.Game, deltTime:f32, runTime:f32) -> bool {
     using self:^MyGame = transmute(^MyGame)game
+    DemoSystem(self)
+    return true
 }
 
-GameShutdown :: proc(game:^dusk.Game) {
-    using self:^MyGame = transmute(^Demo)game
-    log.info("[MyGame]","GameShutdown")
+gameShutdown :: proc(game:^dusk.Game) {
+    using self:^MyGame = transmute(^MyGame)game
+    log.info("[MyGame]","gameShutdown")
 }
-
 ```
