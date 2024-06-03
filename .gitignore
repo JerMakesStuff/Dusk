@@ -1,0 +1,6 @@
+#folders
+bin/
+build/
+
+#files
+ols.json
