@@ -32,7 +32,7 @@ I've only tired this on windows so far i'll update this when i get a chance to t
 ## How to use
 
 - Clone dusk or download it as a zip
-- You can alos add it as a submodule to your project
+- You can also add it as a submodule to your project
 
 ## Minimal Example
 
