@@ -65,7 +65,7 @@ DemoComponent :: struct {
     someData:u32,
 }
 
-DemoSystem :: proc(game:^MyGame) {
+demoSystem :: proc(game:^MyGame) {
     using self := game
     entities := ecs.queryComponents(&world, DemoComponent)
     for ent in entities {
@@ -74,7 +74,7 @@ DemoSystem :: proc(game:^MyGame) {
     }
 }
 
-LogMyComponents :: proc(ud:any) {
+logMyComponents :: proc(ud:any) {
     game := transmute(^MyGame)ud.data
     entities := ecs.queryComponents(&game.world, DemoComponent)
     for ent in entities {
@@ -94,14 +94,14 @@ gameStart :: proc(game:^dusk.Game) -> bool {
     }
 
     // Log out the values of Entities with DemoComponent in 3 seconds
-    delay.start(LogMyComponents, 3, game)
+    delay.start(logMyComponents, 3, game)
     
     return true
 }
 
 gameUpdate :: proc(game:^dusk.Game, deltTime:f32, runTime:f32) -> bool {
     using self:^MyGame = transmute(^MyGame)game
-    DemoSystem(self)
+    demoSystem(self)
     return true
 }
 
