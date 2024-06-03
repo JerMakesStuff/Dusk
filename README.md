@@ -20,6 +20,8 @@ In no particular order here are some things I want to add.
 To build the demo use `odin build ./demo -out:bin/demo.exe`
 and then `.\bin\demo.exe` to run the demo
 
+I've only tired this on windows so far i'll update this when i get a chance to test it on other platforms.
+
 ## How to use
 
 - Clone dusk or download it as a zip
