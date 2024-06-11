@@ -16,12 +16,11 @@ Delay :: struct {
 @private
 delays:[dynamic]Delay
 
-@export
+
 start :: proc(call: DelayProc, time: f32, data:any = nil) {
     append(&delays, Delay{call = call, timeRemaining = time, data = data})
 }
 
-@export
 update :: proc(dt: f32) {
     toremove:[dynamic]int
     for &d, idx in delays {

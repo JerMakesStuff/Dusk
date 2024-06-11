@@ -67,18 +67,18 @@ DemoComponent :: struct {
 
 demoSystem :: proc(game:^MyGame) {
     using self := game
-    entities := ecs.queryComponents(&world, DemoComponent)
+    entities := ecs.query(&world, DemoComponent)
     for ent in entities {
-        demoComp := ecs.getComponent(&world, ent, DemoComponent)
+        demoComp := ent.value1
         demoComp.someData += 1
     }
 }
 
 logMyComponents :: proc(ud:any) {
     game := transmute(^MyGame)ud.data
-    entities := ecs.queryComponents(&game.world, DemoComponent)
+    entities := ecs.query(&game.world, DemoComponent)
     for ent in entities {
-        demoComp := ecs.getComponent(&game.world, ent, DemoComponent)
+        demoComp := ent.value1
         log.info("[Example][DemoComponent] someData:", demoComp.someData)
     }
 }

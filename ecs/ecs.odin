@@ -6,6 +6,7 @@ package ecs
 
 import "core:mem"
 import "core:log"
+import "base:builtin"
 
 Entity :: distinct i32
 World :: struct {
@@ -36,7 +37,7 @@ deleteEntity :: proc(world:^World, ent:Entity) {
     }
 }
 
-isEntityValid :: proc(world:^World, ent:Entity) -> bool {
+isEntityValid :: #force_inline proc(world:^World, ent:Entity) -> bool {
     return world.entStorage[int(ent)] == ent
 }
 
@@ -89,40 +90,7 @@ removeComponentWithTypeId :: proc(world:^World, ent:Entity, tid:typeid) {
     log.debug("[DUSK][ECS] Removed Component of type",tid,"from Entity:",ent)
 }
 
-queryComponent :: proc(world:^World, $T:typeid) -> []Entity {
-    tid := typeid_of(T)
-    entities := make([dynamic]Entity, context.temp_allocator)
-    ents := &world.entityComponentLookup[tid]
-    for ent in ents {
-        append(&entities, ent)
-    }
-    return entities[:]
-}
 
-queryComponents :: proc(world:^World, comps: ..typeid) -> []Entity {
-    entities := make([dynamic]Entity, context.temp_allocator)
-    matchCounts:map[Entity]int
-
-    compCounts := len(comps)
-    for comp in comps {
-        lookup, lookupOk := &world.entityComponentLookup[comp]
-        if lookupOk {
-            for ent in lookup {
-                _, hasEnt := matchCounts[ent]
-                if !hasEnt do matchCounts[ent] = 1
-                else do matchCounts[ent] += 1
-            }
-        } else {    
-            log.debug("[DUSK][ECS] No entities have component of type", comp)
-        }
-    }
-
-    for ent, count in matchCounts {
-        if count == compCounts do append(&entities, ent)
-    }
-
-    return entities[:]
-}
 
 getComponent :: proc(world: ^World, ent:Entity, $T:typeid) -> ^T {
     tid := typeid_of(T)

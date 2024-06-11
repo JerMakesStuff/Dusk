@@ -42,16 +42,61 @@ run :: proc(game:^Game) {
             raylib.UpdateMusicStream(game.music)
         }
 
+        // UPDATE GAME
+        if game.update != nil {
+            if !game->update(deltaTime, runTime) do break
+        }
+
+        if game.lateUpdate != nil {
+            game->lateUpdate(deltaTime, runTime)
+        }
+
         // BEGIN DRAWING
         raylib.BeginDrawing()
-        raylib.EndDrawing()
+        //raylib.BeginTextureMode(renderTexture)
         raylib.ClearBackground(game.backgroundColor)
         
-        // UPDATE GAME
-        if !game->update(deltaTime, runTime) do break
-    
+        if game.render != nil {
+            game->render()
+        }
+
+        //raylib.EndTextureMode()
+
+        if game.postRender != nil {
+            game->postRender()
+        }
+
+        raylib.EndDrawing()
+
         // FREE OUR TEMP ALLOCATOR AT THE END OF THE FRAME
         free_all(context.temp_allocator)
     }
 
 }
+
+
+Sound :: raylib.Sound
+Music :: raylib.Music
+Texture2D :: raylib.Texture2D
+Color :: raylib.Color
+Rectangle :: raylib.Rectangle
+Vector2 :: raylib.Vector2
+
+LoadSound :: raylib.LoadSound
+PlaySound :: raylib.PlaySound
+SetSoundVolume :: raylib.SetSoundVolume
+LoadMusicStream :: raylib.LoadMusicStream
+PlayMusicStream :: raylib.PlayMusicStream
+SetMusicVolume :: raylib.SetMusicVolume
+
+LoadTexture :: raylib.LoadTexture
+DrawTexturePro :: raylib.DrawTexturePro
+
+MeasureText :: raylib.MeasureText
+DrawText :: raylib.DrawText
+
+IsKeyPressed :: raylib.IsKeyPressed
+IsKeyPressedRepeat :: raylib.IsKeyPressedRepeat
+IsKeyReleased :: raylib.IsKeyReleased
+IsKeyDown :: raylib.IsKeyDown
+IsKeyUp :: raylib.IsKeyUp
