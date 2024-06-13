@@ -13,9 +13,10 @@ import "logger"
 
 run :: proc(game:^Game) {
     context.logger = logger.create()
+    context.user_ptr = game
 
     // INIT RAYLIB WINDOW
-    raylib.SetConfigFlags({.VSYNC_HINT})
+    //raylib.SetConfigFlags({.VSYNC_HINT})
     raylib.InitWindow(1280, 720, strings.clone_to_cstring(game.name))
     game.screenSize.x = f32(raylib.GetScreenWidth())
     game.screenSize.y = f32(raylib.GetScreenHeight())
@@ -33,6 +34,7 @@ run :: proc(game:^Game) {
     for !raylib.WindowShouldClose() {
         deltaTime := raylib.GetFrameTime()
         runTime := f32(raylib.GetTime())
+        game.fps = int(raylib.GetFPS())
 
         game.screenSize.x = f32(raylib.GetScreenWidth())
         game.screenSize.y = f32(raylib.GetScreenHeight())
