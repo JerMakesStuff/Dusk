@@ -18,13 +18,53 @@ main :: proc() {
 	demoGame: Demo
 	demoGame.start = demoStart
 	demoGame.update = demoUpdate
+	demoGame.render = demoRender
 	demoGame.shutdown = demoShutdown
 	demoGame.name = "DemoGame"
+	demoGame.virtualResolution = {640, 360}
 	dusk.run(&demoGame)
 }
 
 WHITE :: dusk.Color{255, 255, 255, 255}
 DROP_SHADOW_COLOR :: dusk.Color{0, 0, 0, 128}
+FPS_TEXT_COLOR :: dusk.Color{64,255,128,255}
+
+MAX_BOUNCERS :: 500_000
+BOUNCERS_PER_SPAWN :: 100
+Position :: struct {
+	using position: dusk.Vector2,
+}
+
+Bouncer :: struct {
+	using velocity: dusk.Vector2,
+}
+
+Label :: struct {
+	text:            string,
+	fontSize:        i32,
+	color:           dusk.Color,
+	dropShadow:      bool,
+	dropShadowColor: dusk.Color,
+}
+
+Sprite :: struct {
+	texture:  dusk.Texture2D,
+	source:   dusk.Rectangle,
+	scale:    dusk.Vector2,
+	origin:   dusk.Vector2,
+	rotation: f32,
+	color:    dusk.Color,
+}
+
+Wiggler :: struct {
+	origin:    dusk.Vector2,
+	max:       dusk.Vector2,
+	timeScale: dusk.Vector2,
+}
+
+LabelUpdater :: struct {
+	update: proc(label: ^Label, position: ^Position, game: ^Demo),
+}
 
 Demo :: struct {
 	using game:      dusk.Game,
@@ -50,7 +90,6 @@ demoStart :: proc(game: ^dusk.Game) -> bool {
 
 	log.info("[DEMO]", "Howdy! o/")
 
-	// LOAD Assets
 	testSound = dusk.LoadSound("sfx/test.wav")
 	music = dusk.LoadMusicStream("music/test.mp3")
 	testImage = dusk.LoadTexture("art/test.png")
@@ -79,30 +118,34 @@ demoStart :: proc(game: ^dusk.Game) -> bool {
 
 	backgroundColor = WHITE
 
-    // spawn a bunch of stuff every few seconds
-    delay.start(spawnBouncers, 1, self)
+    delay.start(spawnBouncers, 5, self)
 
-    
-	// Create some entities
-    logoStartPos := Position {  x = screenSize.x / 2 - f32(testImage.width * 8) / 2, y = screenSize.y / 2 - f32(testImage.height * 8) / 2 - 140 }
-	logoEnt = createSprite(&world, testImage, 8, logoStartPos)
+    logoStartPos := Position {  
+		x = screenSize.x / 2 - f32(testImage.width), 
+		y = screenSize.y / 2 - f32(testImage.width)}
+	logoEnt = createSprite(&world, testImage, 2, logoStartPos)
     logoWiggler := Wiggler { origin = logoStartPos, max = dusk.Vector2{16, 16}, timeScale = dusk.Vector2{1.6, 1}}
 	ecs.addComponent(&world, logoEnt, logoWiggler)
 
-	howdyWidth := f32(dusk.MeasureText("Howdy! o/", 60))
-    howdyPosition := Position{x = screenSize.x / 2 - howdyWidth / 2, y = screenSize.y - 240}
-	howdyEnt = createLabel(&world, "Howdy! o/", 60, WHITE, howdyPosition, true)
+	howdyWidth := f32(dusk.MeasureText("Howdy! o/", 32))
+    howdyPosition := Position{
+		x = screenSize.x / 2 - howdyWidth / 2, 
+		y = screenSize.y / 2 + 100}
+	howdyEnt = createLabel(&world, "Howdy! o/", 32, WHITE, howdyPosition, true)
 
-    instructionsPosition := Position{x = 20, y = screenSize.y - 24}
-	instructionsEnt = createLabel(&world, "use the [-] and [=] keys to change the music volume", 20, WHITE, instructionsPosition, true)
+    instructionsPosition := Position{
+		x = 5, 
+		y = screenSize.y - 13}
+	instructionsEnt = createLabel(&world, "use the [-] and [=] keys to change the music volume", 8, WHITE, instructionsPosition, true)
 
-    volumePosition := Position{x = 20, y = screenSize.y - 55}
-	volumeTextEnt = createLabel(&world, "MUSIC VOLUME: 75", 28, WHITE, volumePosition, true)
+    volumePosition := Position{
+		x = 5, 
+		y = screenSize.y - 24}
+	volumeTextEnt = createLabel(&world, "MUSIC VOLUME: 75", 8, WHITE, volumePosition, true)
 	ecs.addComponent(&world, volumeTextEnt, LabelUpdater{update = updateVolumeText})
 
-    
-    fpsPos := Position{x = 20, y = 20}
-	fpsEnt := createLabel(&world, "FPS:", 28, dusk.Color{64,255,128,255}, fpsPos, true)
+    fpsPos := Position{x = 5, y = 5}
+	fpsEnt := createLabel(&world, "FPS:", 8, FPS_TEXT_COLOR, fpsPos, true)
 	ecs.addComponent(&world, fpsEnt, LabelUpdater{update = updateFpsText})
 
 	return true
@@ -111,7 +154,6 @@ demoStart :: proc(game: ^dusk.Game) -> bool {
 demoUpdate :: proc(game: ^dusk.Game, deltTime: f32, runTime: f32) -> bool {
 	using self: ^Demo = transmute(^Demo)game
 
-	// Volume Controls
 	if (dusk.IsKeyPressed(.MINUS)) {
 		musicVolume -= 0.01
 		musicVolume = math.min(math.max(musicVolume, 0), 1)
@@ -136,42 +178,59 @@ demoUpdate :: proc(game: ^dusk.Game, deltTime: f32, runTime: f32) -> bool {
 		dusk.SetMusicVolume(music, musicVolume)
 	}
 
-	// Update Background Color
 	backgroundColor.r = u8(255 * ((math.sin(runTime / 5) + 1) / 2))
 	backgroundColor.g = u8(255 * ((math.sin(runTime / 6) + 1) / 2))
 	backgroundColor.b = u8(255 * ((math.sin(runTime / 10) + 1) / 2))
 
 	updateWigglers(&world, runTime)
-    updateBouncers(&world, deltTime)
+    updateBouncers(self, deltTime)
 	updateLabels(&world, self)
 
-	renderSprites(&world)
-	renderLabels(&world)
 
 	return true
+}
+
+demoRender :: proc(game: ^dusk.Game) {
+	using self: ^Demo = transmute(^Demo)game
+	
+	renderBouncers(&world)
+	renderLogo(self)
+	renderLabels(&world)
 }
 
 spawnBouncers :: proc(game:rawptr) {
     using self := transmute(^Demo)game
 
-    logoPosition := ecs.getComponent(&world,logoEnt, Position)
-    logoSprite := ecs.getComponent(&world,logoEnt, Sprite)
+    logoPosition := ecs.getComponent(&world, logoEnt, Position)
 
-    for _ in 0..< 10 {
-        scale := rand.float32_range(0.5, 1.5)
-        
-        screenBounds := Bounds {x = 0, y = 0, width = screenSize.x - f32(testImage.width) * scale, height = screenSize.y - f32(testImage.height) * scale}
-        bouncerStartPos := Position { x = logoPosition.x + (logoSprite.source.width * logoSprite.scale.x) / 2, y = logoPosition.y + (logoSprite.source.height * logoSprite.scale.y) / 2}
-        bouncerVelocity := Velocity { x = rand.float32_range(-200, 200), y = rand.float32_range(-200, 200)}
-        
-        bouncerColor := dusk.Color{ u8(rand.int31() % 256), u8(rand.int31() % 256), u8(rand.int31() % 256), 255}
+	bouncers := ecs.query(&world, Bouncer)
+	bouncerCount := len(bouncers)
 
-        bouncerEnt := createSprite(&world, testImage, scale, bouncerStartPos, bouncerColor)
-        addBouncerToEntity(&world, bouncerEnt, bouncerVelocity, screenBounds)
+	if(bouncerCount + BOUNCERS_PER_SPAWN > MAX_BOUNCERS) do return
+    
+    for i in 0..< BOUNCERS_PER_SPAWN {
+		bouncerStartPos := Position {
+			x = logoPosition.x + f32(testImage.width) / 2,
+			y = logoPosition.y + f32(testImage.height) / 2, 
+		}
+
+        bouncer := Bouncer { 
+			x = rand.float32_range(-100, 100), 
+			y = rand.float32_range(-100, 100)
+		}
+		
+		bouncerColor := dusk.Color { 
+			u8(int(bouncer.x) % 256), 
+			u8(i % 256), 
+			u8(int(bouncer.y) % 256), 
+			255
+		}
+        spriteEntity := createSprite(&world, testImage, 1, bouncerStartPos, bouncerColor)
+		ecs.addComponent(&world, spriteEntity, bouncer)
     }
 
-    // and again....
-    delay.start(spawnBouncers, 1, self)
+	if fps < 60 do return
+    delay.start(spawnBouncers, 0, self)
 }
 
 updateWigglers :: proc(world: ^ecs.World, runTime: f32) {
@@ -184,31 +243,34 @@ updateWigglers :: proc(world: ^ecs.World, runTime: f32) {
 	}
 }
 
-updateBouncers :: proc(world: ^ecs.World, deltaTime: f32) {
-    bouncers := ecs.query(world, Position, Velocity, Bounds, Bouncer)
-    for entity in bouncers {
+updateBouncers :: proc(game:^Demo, deltaTime: f32) {
+	using self := game
+    bouncers := ecs.query(&world, Position, Bouncer)
+    
+	for entity in bouncers {
         position := entity.value1
         velocity := entity.value2
-        bounds := entity.value3
 
         position.x += velocity.x * deltaTime
         position.y += velocity.y * deltaTime
 
-        if(position.x <= bounds.x) {
-            position.x = bounds.x
-            velocity.x *= -1
-        } else if ( position.x >= bounds.x + bounds.width) {
-            position.x = bounds.x + bounds.width
-            velocity.x *= -1
-        }
+        right := screenSize.x - f32(testImage.width)
+		bottom := screenSize.y - f32(testImage.width)
 
-        if(position.y <= bounds.y) {
-            position.y = bounds.y
-            velocity.y *= -1
-        } else if ( position.y >= bounds.y + bounds.height) {
-            position.y = bounds.y + bounds.height
-            velocity.y *= -1
-        }
+		if position.x <= 0 { 
+			velocity.x *= -1
+			position.x *= -1
+		} else if position.x >= right{
+			velocity.x *= -1
+			position.x = right - (position.x - right)
+		}
+		if position.y <= 0 {
+			velocity.y *= -1
+			position.y *= -1
+		} else if position.y >= bottom {
+			velocity.y *= -1
+			position.y = bottom - (position.y - bottom)
+		}
     }
 }
 
@@ -216,7 +278,6 @@ createLabel :: proc(world: ^ecs.World, text: string, fontSize: i32, color: dusk.
     label := ecs.createEntity(world)
     ecs.addComponent(world, label, position)
 	ecs.addComponent(world, label, Label { text = text, fontSize = fontSize, color = color, dropShadow = dropShadow, dropShadowColor = dropShadowColor})
-	ecs.addComponent(world, label, Renderable(true))
     return label
 }
 
@@ -231,25 +292,22 @@ updateLabels :: proc(world: ^ecs.World, game: ^Demo) {
 }
 
 renderLabels :: proc(world: ^ecs.World) {
-	labelRenderers := ecs.query(world, Position, Label, Renderable)
+	labelRenderers := ecs.query(world, Position, Label)
 	for ent in labelRenderers {
 		position := ent.value1
 		label := ent.value2
-		renderable := ent.value3
-		if (renderable^) {
-			// only do this allocation once
-			text := strings.clone_to_cstring(label.text, context.temp_allocator)
-			if (label.dropShadow) {
-				dusk.DrawText(
-					text,
-					i32(position.x) + 2,
-					i32(position.y) + 2,
-					label.fontSize,
-					label.dropShadowColor,
-				)
-			}
-			dusk.DrawText(text, i32(position.x), i32(position.y), label.fontSize, label.color)
+		text := strings.clone_to_cstring(label.text, context.temp_allocator)
+		if (label.dropShadow) {
+			dusk.DrawText(
+				text,
+				i32(position.x) + 1,
+				i32(position.y) + 1,
+				label.fontSize,
+				label.dropShadowColor,
+			)
 		}
+		dusk.DrawText(text, i32(position.x), i32(position.y), label.fontSize, label.color)
+		
 	}
 }
 
@@ -263,44 +321,47 @@ createSprite :: proc(world: ^ecs.World, texture: dusk.Texture2D, scale:f32, posi
 			scale = {scale, scale}, origin = {0, 0}, rotation = 0, color = color, 
         }
 	)
-	ecs.addComponent(world, spriteEntity, Renderable(true))
     return spriteEntity
 }
 
-addBouncerToEntity :: proc(world:^ecs.World, spriteEntity:ecs.Entity, velocity:Velocity, bounds:Bounds) {
-    position : = ecs.getComponent(world, spriteEntity, Position)
-    if(position == nil) {
-        ecs.addComponent(world, spriteEntity, Position{})
-    }
-    ecs.addComponent(world, spriteEntity, velocity)
-    ecs.addComponent(world, spriteEntity, bounds)
-    ecs.addComponent(world, spriteEntity, Bouncer{})
-}
+renderBouncers :: proc(world: ^ecs.World) {
+	spriteRenderers := ecs.query(world, Position, Sprite, Bouncer)
 
-renderSprites :: proc(world: ^ecs.World) {
-	spriteRenderers := ecs.query(world, Position, Sprite, Renderable)
-
-    slice.sort_by(spriteRenderers, proc(i, j:ecs.QueryResult3(Position,Sprite,Renderable)) -> bool {
-        return i.value2.scale.x < j.value2.scale.x
+    slice.sort_by(spriteRenderers, proc(i, j:ecs.QueryResult3(Position,Sprite,Bouncer)) -> bool {
+        return i.entity < j.entity
     })
 
 	for ent in spriteRenderers {
-		position := ent.value1
-		sprite := ent.value2
-		renderable := ent.value3
-		if (renderable^) {
-			dstWidth := f32(sprite.texture.width) * sprite.scale.x
-			dstHeight := f32(sprite.texture.height) * sprite.scale.y
-			dusk.DrawTexturePro(
-				sprite.texture,
-				sprite.source,
-				{x = position.x, y = position.y, width = dstWidth, height = dstHeight},
-				sprite.origin,
-				sprite.rotation,
-				sprite.color,
-			)
-		}
+		position   := ent.value1
+		sprite     := ent.value2
+		dstWidth := f32(sprite.texture.width) * sprite.scale.x
+		dstHeight := f32(sprite.texture.height) * sprite.scale.y
+		dusk.DrawTexturePro(
+			sprite.texture,
+			sprite.source,
+			{x = position.x, y = position.y, width = dstWidth, height = dstHeight},
+			sprite.origin,
+			sprite.rotation,
+			sprite.color,
+		)
 	}
+}
+
+renderLogo :: proc(game:^Demo) {
+	using self := game
+
+	position   := ecs.getComponent(&world, logoEnt, Position)
+	sprite     := ecs.getComponent(&world, logoEnt, Sprite)
+	dstWidth := f32(sprite.texture.width) * sprite.scale.x
+	dstHeight := f32(sprite.texture.height) * sprite.scale.y
+	dusk.DrawTexturePro(
+		sprite.texture,
+		sprite.source,
+		{x = position.x, y = position.y, width = dstWidth, height = dstHeight},
+		sprite.origin,
+		sprite.rotation,
+		sprite.color,
+	)
 }
 
 demoShutdown :: proc(game: ^dusk.Game) {
@@ -328,52 +389,7 @@ updateFpsText :: proc(label: ^Label, position: ^Position, game: ^Demo) {
 	strings.builder_init_none(&builder)
 	strings.write_string(&builder, "FPS: ")
 	strings.write_int(&builder, game.fps)
-    strings.write_string(&builder, "\n\nBouncers: ")
+    strings.write_string(&builder, "\nBouncers: ")
 	strings.write_int(&builder, bouncerCount)
 	label.text = strings.to_string(builder)
-}
-
-// Defining the components
-
-Position :: struct {
-	using _: dusk.Vector2,
-}
-
-Velocity :: struct {
-	using _: dusk.Vector2,
-}
-
-Bounds :: struct {
-    using _: dusk.Rectangle,
-}
-
-Bouncer :: struct {}
-
-Label :: struct {
-	text:            string,
-	fontSize:        i32,
-	color:           dusk.Color,
-	dropShadow:      bool,
-	dropShadowColor: dusk.Color,
-}
-
-Sprite :: struct {
-	texture:  dusk.Texture2D,
-	source:   dusk.Rectangle,
-	scale:    dusk.Vector2,
-	origin:   dusk.Vector2,
-	rotation: f32,
-	color:    dusk.Color,
-}
-
-Renderable :: distinct bool
-
-Wiggler :: struct {
-	origin:    dusk.Vector2,
-	max:       dusk.Vector2,
-	timeScale: dusk.Vector2,
-}
-
-LabelUpdater :: struct {
-	update: proc(label: ^Label, position: ^Position, game: ^Demo),
 }

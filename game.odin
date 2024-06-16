@@ -12,6 +12,7 @@ Game :: struct {
     music:raylib.Music,
     screenSize:raylib.Vector2,
     fps:int,
+    virtualResolution:[2]i32,
 
     // Return false if something went and you would like to abort the launch of the game
     start:proc(self:^Game) -> bool,

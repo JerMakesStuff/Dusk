@@ -4,3 +4,5 @@ build/
 
 #files
 ols.json
+*.exe
+*.pdb
