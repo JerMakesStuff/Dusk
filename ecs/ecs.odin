@@ -6,112 +6,139 @@ package ecs
 
 import "base:builtin"
 import "core:log"
-import "core:mem"
+import "core:slice"
 
 Entity :: distinct i32
+
+EntityData :: struct {
+	entity: Entity,
+	components: map[typeid]int // The index into the Component storage for this entities components
+}
+
+ComponentData :: struct {
+	type: typeid,
+	entities: [dynamic]Entity, 
+}
+
+TypedComponentData :: struct($T:typeid) {
+	using componentData:ComponentData,
+	storage:[dynamic]T,
+}
+
 World :: struct {
-	compStorage:           map[typeid]mem.Raw_Dynamic_Array,
-	freeCompIds:           map[typeid][dynamic]int,
-	entStorage:            [dynamic]Entity,
-	freeEntIds:            [dynamic]Entity,
-	entityComponentLookup: map[typeid]map[Entity]int,
+	componentStorage:  map[typeid]^ComponentData,
+	entityStorage:  [dynamic]EntityData,
+	unusedEnityIds: [dynamic]Entity,
+
+	queryHasTypeLookup: map[typeid]map[typeid]bool,
+	queryNeedsRefreshed: map[typeid]bool,
 }
 
 createEntity :: proc(world: ^World) -> Entity {
-	if len(world.freeEntIds) != 0 {
-		ent: Entity = pop(&world.freeEntIds)
-		world.entStorage[int(ent)] = ent
-		return ent
+	if(world.entityStorage == nil) {
+		world.entityStorage = make([dynamic]EntityData)
+		world.unusedEnityIds = make([dynamic]Entity)
+		world.componentStorage = make(map[typeid]^ComponentData)
+		world.queryHasTypeLookup = make(map[typeid]map[typeid]bool)
+		world.queryNeedsRefreshed = make(map[typeid]bool)
 	}
-	ent: Entity = Entity(len(world.entStorage))
-	append(&world.entStorage, ent)
-	log.debug("[DUSK][ECS] Created Entity", ent)
-	return ent
+	if len(world.unusedEnityIds) != 0 {
+		entity: Entity = pop(&world.unusedEnityIds)
+		world.entityStorage[int(entity)].entity = entity
+		return entity
+	}
+
+	entity := Entity(len(world.entityStorage))
+	entityData := EntityData{}
+	entityData.entity = entity
+	entityData.components = make(map[typeid]int)
+	append(&world.entityStorage, entityData )
+	log.debug("[DUSK][ECS] Created Entity", entityData.entity)
+	return entityData.entity
 }
 
-deleteEntity :: proc(world: ^World, ent: Entity) {
-	append(&world.freeEntIds, ent)
-	world.entStorage[int(ent)] = Entity(-1)
-	for t in world.entityComponentLookup {
-		removeComponentWithTypeId(world, ent, t)
+deleteEntity :: proc(world: ^World, entity: Entity) {
+	append(&world.unusedEnityIds, entity)
+	entityData := &world.entityStorage[int(entity)]
+	for component in entityData.components {
+		removeComponentWithTypeId(world, entity, component)
 	}
+	clear(&entityData.components)
+	entityData.entity = Entity(-1)
 }
 
 isEntityValid :: #force_inline proc(world: ^World, ent: Entity) -> bool {
-	return world.entStorage[int(ent)] == ent
+	return world.entityStorage[int(ent)].entity == ent
 }
 
-addComponent :: proc(world: ^World, ent: Entity, comp: $T) {
-	tid := typeid_of(T)
-	_, storageOk := world.compStorage[tid]
-	if !storageOk {
-		newStorage := make([dynamic]T, 0, 200000)
-		world.compStorage[tid] = transmute(mem.Raw_Dynamic_Array)newStorage
-		log.debug("[DUSK][ECS] Creating storage for Components of type", tid)
+addComponent :: proc(world: ^World, entity: Entity, component: $T) {
+	componentData := transmute(^TypedComponentData(T))world.componentStorage[typeid_of(T)]
+	
+	if componentData == nil {
+		componentData = new(TypedComponentData(T))
+		componentData.type = T
+		componentData.entities = make([dynamic]Entity)
+		componentData.storage = make([dynamic]T)
+		world.componentStorage[typeid_of(T)] = componentData
+		log.debug("[DUSK][ECS] Creating storage for Components of type", typeid_of(T))
 	}
-	compID: int = -1
-	storage := transmute(^[dynamic]T)&world.compStorage[tid]
-	if len(world.freeCompIds[tid]) != 0 {
-		compID = pop(&world.freeCompIds[tid])
-		storage[compID] = comp
-	} else {
-		compID = len(storage)
-		append(storage, comp)
-	}
-	lookup, lookupOK := &world.entityComponentLookup[tid]
-	if !lookupOK {
-		world.entityComponentLookup[tid] = make(map[Entity]int)
-		lookup = &world.entityComponentLookup[tid]
-		log.debug("[DUSK][ECS] Creating lookup table for Components of type", tid)
-	}
-	lookup[ent] = compID
-	log.debug("[DUSK][ECS] Components of type", tid, "to Entity", ent)
 
+	componentId := 0 if componentData.storage == nil else len(componentData.storage)
+	append(&componentData.storage, component)
+
+	entityData := &world.entityStorage[entity]
+	entityData.components[typeid_of(T)] = componentId
+	append(&componentData.entities, entity)
+	
+	setQueriesWithComponentOfTypeIdToRefresh(world, T)
+	
+	log.debug("[DUSK][ECS] Components of type", typeid_of(T), "to Entity", entity)
 }
 
 removeComponent :: proc(world: ^World, ent: Entity, comp: $T) {
-	tid := typeid_of(T)
-	removeComponentWithTypeId(world, ent, tid)
+	removeComponentWithTypeId(world, ent, typeid_of(T))
 }
 
-removeComponentWithTypeId :: proc(world: ^World, ent: Entity, tid: typeid) {
-	lookup, lookupOK := &world.entityComponentLookup[tid]
-	if !lookupOK {
-		log.debug("[DUSK][ECS] No entities have component of type", tid)
-		return
-	}
-	compID, compIDOk := lookup[ent]
-	if !compIDOk {
-		log.debug("[DUSK][ECS] Entity", ent, "has no component of type", tid)
-		return
-	}
-	append(&world.freeCompIds[tid], compID)
-	delete_key(lookup, ent)
-	log.debug("[DUSK][ECS] Removed Component of type", tid, "from Entity:", ent)
+removeComponentWithTypeId :: proc(world: ^World, entity: Entity, componentTypeId: typeid) {
+	entityData := world.entityStorage[entity]
+	delete_key(&entityData.components, componentTypeId)
+
+	componentData := world.componentStorage[componentTypeId]
+	entityIndex, found := slice.linear_search(componentData.entities[:], entity)
+	if found do ordered_remove(&componentData.entities, entityIndex)
+	
+	world.entityStorage[entity] = entityData
+	world.componentStorage[componentTypeId] = componentData
+	setQueriesWithComponentOfTypeIdToRefresh(world, componentTypeId)
+	log.debug("[DUSK][ECS] Removed Component of type", componentTypeId, "from Entity:", entity)
 }
 
-
-getComponent :: proc(world: ^World, ent: Entity, $T: typeid) -> ^T {
-	tid := typeid_of(T)
-	_, storageOk := world.compStorage[tid]
-	if !storageOk {
-		log.warn("[DUSK][ECS] No storage for component type", tid)
+getComponent :: proc(world: ^World, entity: Entity, $T: typeid) -> ^T {
+	componentData := transmute(^TypedComponentData(T))world.componentStorage[typeid_of(T)]
+	if componentData == nil {
+		log.warn("[DUSK][ECS] No storage for component type", typeid_of(T))
 		return nil
 	}
-	storage := transmute(^[dynamic]T)&world.compStorage[tid]
-
-	lookup, lookupOK := &world.entityComponentLookup[tid]
-	if !lookupOK {
-		log.debug("[DUSK][ECS] No entities have component of type", tid)
-		return nil
-	}
-
-	compID, compIDOk := lookup[ent]
+	entityData := world.entityStorage[entity]
+	componentId, compIDOk := entityData.components[typeid_of(T)]
 	if !compIDOk {
-		log.debug("[DUSK][ECS] Entity", ent, "has no component of type", tid)
+		log.debug("[DUSK][ECS] Entity", entity, "has no component of type", typeid_of(T))
 		return nil
 	}
-
-	retVal: ^T = &storage[compID]
+	retVal: ^T = &componentData.storage[componentId]
 	return retVal
+}
+
+cleanup :: proc(world:^World) {
+	for &entity in world.entityStorage {
+		delete(entity.components)
+	}
+	for _, &componentData in world.componentStorage {
+		delete(componentData.entities)
+	}
+	delete(world.componentStorage)
+	delete(world.entityStorage)
+	delete(world.unusedEnityIds)
+	delete(world.queryHasTypeLookup)
+	delete(world.queryNeedsRefreshed)
 }
