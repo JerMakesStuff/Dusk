@@ -1,5 +1,8 @@
 # Dusk
 
+## Where are the updates?
+I'm currently in the proccess of removing raylib and replacing it with my own rendering layer, this is taking longer than expected.
+
 ## What?
 
 Dusk is a small game template / framework or whatever you want to call it.
