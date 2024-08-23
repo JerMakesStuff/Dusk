@@ -1,8 +1,5 @@
 # Dusk
 
-## Where are the updates?
-I'm currently in the proccess of removing raylib and replacing it with my own rendering layer, this is taking longer than expected.
-
 ## What?
 
 Dusk is a small game template / framework or whatever you want to call it.
@@ -13,16 +10,13 @@ I made it to make the start of a project more enjoyable for me.
 * Abstracts away some of the boiler plate initialization and gameloop stuff.
 * Virtual Resolutions
 * Delayed procedure calls
-* ECS (WIP)
 
 ## Roadmap
 
 In no particular order here are some things I want to add.
 
-
 * Some build in post processing with the option for custom stuff. IE. Scanlines
-* Some prebuilt Components and Systems for doing standard stuff like drawing sprites.
-* Scripting via lua
+* Scripting via lua for states
 * Build in settings saving and loading for graphics and sound options
 
 ## Build the demo
@@ -30,33 +24,37 @@ In no particular order here are some things I want to add.
 To build the demo use `odin build ./demo -out:bin/demo.exe`
 and then `.\bin\demo.exe` to run the demo
 
-I've only tired this on windows so far i'll update this when i get a chance to test it on other platforms.
+I've only tired this on windows so far I'll update this when i get a chance to test it on other platforms.
+Note: you may need to copy the art, music and sfx folders to the bin directory if you do are not seeing a bunch of spites bouncing around.
 
 ## How to use
 
 - Clone dusk or download it as a zip
 - You can also add it as a submodule to your project
 
+
 ## Minimal Example
 
-see the [demo](demo/demo.odin) and [non ecs demo](demo_no_ecs/demo.odin) for a larger example
+see the [demo](demo/demo.odin) for a larger example
 
-I'm providing a non ecs version of the example until i can get ecs performance up
-So far in my testing my current implementation of ecs is about 10x slower than a non ecs implementation so something is definatly wrong with it.
-```
+```Odin
 package example
 
 import "core:log"
+import rl "vendor:raylib"
 
 import dusk "path/to/dusk"
 import delay "path/to/dusk/delay"
-WHITE :: dusk.Color{255, 255, 255, 255}
+
+V2ZERO :: rl.Vector2{0,0}
+WHITE :: rl.Color{255, 255, 255, 255}
 
 main :: proc() {
     myGame : MyGame
     myGame.start = gameStart
-    myGame.update = gameUpdate
-    myGame.render = gameRender
+	myGame.myGameState.enter = myGameStateEnter
+    myGame.myGameState.update = myGameStateUpdate
+    myGame.myGameState.render = myGameStateRender
     myGame.shutdown = gameShutdown
     myGame.name = "MyGame"
     dusk.run(&myGame)
@@ -64,167 +62,79 @@ main :: proc() {
 
 MyGame :: struct {
     using game:dusk.Game,
-    testTexture:dusk.Texture2D,
-
-    someData:[10]u32,
-    imagePosition:dusk.Vector2,
+    myGameState:MyGameState,
 }
 
-logMyComponents :: proc(game:rawptr) {
-    using self := transmute(^MyGame)game
-    for data in someData {
+MyGameState :: struct {
+    using state:dusk.State,
+    testTexture:rl.Texture2D,
+    someData:[10]u32,
+    imagePosition:rl.Vector2,
+}
+
+logSomeData :: proc(state:rawptr) {
+    state := cast(^MyGameState)state
+    for data in state.someData {
         log.info("[Example] someData:", data)
     }
 }
 
 gameStart :: proc(game:^dusk.Game) -> bool {
-    using self:^MyGame = transmute(^MyGame)game
+    game := cast(^MyGame)game
     log.info("[MyGame]","gameStart")
+    dusk.PushState(game, &game.myGameState)
+	return true
+}
 
-    testTexture = dusk.LoadTexture("art/test.png")
-    imagePosition = {20, 20} 
+myGameStateEnter :: proc(state:^dusk.State, game:^dusk.Game) -> bool {
+    state := cast(^MyGameState)state
+    state.testTexture = rl.LoadTexture("art/test.png")
+    state.imagePosition = {20, 20} 
 
-    for &data, i in someData{
+    for &data, i in state.someData {
         data = u32(i)
     }
 
     // Log out the values of someData in 3 seconds
-    delay.start(logMyComponents, 3, self)
+    delay.start(logSomeData, 3, state)
     
     return true
 }
 
-gameUpdate :: proc(game:^dusk.Game, deltTime:f32, runTime:f32) -> bool {
-    using self:^MyGame = transmute(^MyGame)game
-    
-    for &data in someData {
+myGameStateUpdate :: proc(state:^dusk.State, game:^dusk.Game, deltTime:f32, runTime:f32) -> bool {
+    state := cast(^MyGameState)state
+
+    for &data in state.someData {
         data += 1
     }
 
     return true
 }
 
-gameRender :: proc(game:^dusk.Game) {
-    using self:^MyGame = transmute(^MyGame)game
+myGameStateRender :: proc(state:^dusk.State, game:^dusk.Game) {
+    state := cast(^MyGameState)state
     
-    imgWidth : f32 = f32(testTexture.width)
-    imgHeight : f32 = f32(testTexture.height)
+    imgWidth := f32(state.testTexture.width)
+    imgHeight := f32(state.testTexture.height)
 
-    dusk.DrawTexturePro(testTexture, 
-        dusk.Rectangle{0,0,imgWidth, imgHeight}, 
-        dusk.Rectangle{imagePosition.x, imagePosition.y, imgWidth, imgHeight}, 
-        dusk.V2ZERO, 0, WHITE)
+    rl.DrawTexturePro(
+        state.testTexture, 
+        rl.Rectangle{0, 0, imgWidth, imgHeight}, 
+        rl.Rectangle{state.imagePosition.x, state.imagePosition.y, imgWidth, imgHeight}, 
+        V2ZERO, 0, WHITE)
 }
 
 gameShutdown :: proc(game:^dusk.Game) {
-    using self:^MyGame = transmute(^MyGame)game
+    using self:^MyGame = cast(^MyGame)game
     log.info("[MyGame]","gameShutdown")
 }
 ```
+## What happened to ECS?
 
-Here is the ecs example
-```Odin
-package example
+My implementation was bad / not as fast not using it, at least for the types of things i'm making.
+So instead of bashing my head on trying to make it run faster I have refocused my efforts to other things.
 
-import "core:log"
+## Weren't you replacing raylib
 
-import dusk "path/to/dusk"
-import ecs "path/to/dusk/ecs"
-import delay "path/to/dusk/delay"
-
-WHITE :: dusk.Color{255, 255, 255, 255}
-
-main :: proc() {
-    myGame : MyGame
-    myGame.start = gameStart
-    myGame.update = gameUpdate
-    myGame.render = gameRender
-    myGame.shutdown = gameShutdown
-    myGame.name = "MyGame"
-    dusk.run(&myGame)
-}
-
-MyGame :: struct {
-    using game:dusk.Game,
-    world:ecs.World,
-    testTexture:dusk.Texture2D,
-}
-
-DemoComponent :: struct {
-    someData:u32,
-}
-
-TestImageComponent :: struct {
-    position : dusk.Vector2
-}
-
-updateDemoComponents :: proc(game:^MyGame) {
-    using self := game
-    entities := ecs.query(&world, DemoComponent)
-    for ent in entities {
-        demoComp := ent.value1
-        demoComp.someData += 1
-    }
-}
-
-logMyComponents :: proc(ud:rawptr) {
-    using self := transmute(^MyGame)ud
-    entities := ecs.query(&world, DemoComponent)
-    for ent in entities {
-        demoComp := ent.value1
-        log.info("[Example][DemoComponent] someData:", demoComp.someData)
-    }
-}
-
-drawTestImageComponents :: proc(game:^MyGame) {
-    using self := game
-    imgWidth : f32 = f32(testTexture.width)
-    imgHeight : f32 = f32(testTexture.height)
-    images := ecs.query(&world, TestImageComponent)
-    for image in images {
-        position := image.value1.position
-        dusk.DrawTexturePro(testTexture, 
-            dusk.Rectangle{0,0,imgWidth,imgHeight}, 
-            dusk.Rectangle{position.x, position.y, imgWidth, imgHeight}, 
-            dusk.V2ZERO, 0, WHITE)
-    }
-}
-
-gameStart :: proc(game:^dusk.Game) -> bool {
-    using self:^MyGame = transmute(^MyGame)game
-    log.info("[MyGame]","gameStart")
-
-    testTexture = dusk.LoadTexture("art/test.png")
-
-    imgEntity := ecs.createEntity(&world)
-    ecs.addComponent(&world, imgEntity, TestImageComponent { position = {20, 20} })
-
-    // Create some entities with the DemoComponent component
-    for i in 0..<10 {
-        ent := ecs.createEntity(&world)
-        ecs.addComponent(&world, ent, DemoComponent{ someData = u32(i)})
-    }
-
-    // Log out the values of Entities with DemoComponent in 3 seconds
-    delay.start(logMyComponents, 3, self)
-    
-    return true
-}
-
-gameUpdate :: proc(game:^dusk.Game, deltTime:f32, runTime:f32) -> bool {
-    using self:^MyGame = transmute(^MyGame)game
-    updateDemoComponents(self)
-    return true
-}
-
-gameRender :: proc(game:^dusk.Game) {
-    using self:^MyGame = transmute(^MyGame)game
-    drawTestImageComponents(self)
-}
-
-gameShutdown :: proc(game:^dusk.Game) {
-    using self:^MyGame = transmute(^MyGame)game
-    log.info("[MyGame]","gameShutdown")
-}
-
-```
+Long story short, hardware failure and some unfortunate mistakes on my part led me to lose a months worth of progress on my own renderer.
+Due to actually having to make a game I am forgoing making my own renderer, at least for now.

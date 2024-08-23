@@ -6,6 +6,8 @@ package dusk
 
 import "vendor:raylib"
 
+MAX_STATES :: 10
+
 Game :: struct {
     name:string,
     backgroundColor:raylib.Color,
@@ -13,24 +15,29 @@ Game :: struct {
     screenSize:raylib.Vector2,
     fps:int,
     virtualResolution:[2]i32,
+    states:[MAX_STATES]^State,
+    stateCount:i32,
 
     // Return false if something went and you would like to abort the launch of the game
     start:proc(self:^Game) -> bool,
 
-    // Return false if you would like to close the game.
-    update:proc(self:^Game, deltaTime:f32, runTime:f32) -> bool,
-
-    // This is called right before we render and after all the other
-    // update stuff
-    lateUpdate:proc(self:^Game, deltaTime:f32, runTime:f32),
-
-    // This is called first thing after we clear the background.
-    render:proc(self:^Game),
-
-    // This is called after we render everything to the renderTexture but before we
-    // draw the render textrure to the frame buffer.
-    postRender:proc(self:^Game),
-
     // Handle anything that needs to happen when the game shutsdowns like last minute saves
     shutdown:proc(self:^Game),
+}
+
+PushState :: proc(game:^Game, state:^State) -> bool {
+    if game.stateCount == MAX_STATES do return false
+    if game.stateCount > 0 && game.states[game.stateCount-1].exit != nil do game.states[game.stateCount-1]->exit(game)
+    game.states[game.stateCount] = state
+    if state.enter != nil do state->enter(game)
+    game.stateCount += 1
+    return true
+}
+
+PopState :: proc(game:^Game) -> bool {
+    if game.stateCount == 0 do return false
+    if game.states[game.stateCount-1].exit != nil do game.states[game.stateCount-1]->exit(game)
+    game.states[game.stateCount-1] = nil
+    game.stateCount -= 1
+    return true
 }

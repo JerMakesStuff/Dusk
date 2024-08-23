@@ -8,388 +8,287 @@ import "core:log"
 import "core:math"
 import "core:math/rand"
 import "core:strings"
-import "core:slice"
+import rl "vendor:raylib"
 
 import dusk ".."
 import delay "../delay"
-import ecs "../ecs"
 
 main :: proc() {
-	demoGame: Demo
+	demoGame: ^Demo = new(Demo)
 	demoGame.start = demoStart
-	demoGame.update = demoUpdate
-	demoGame.render = demoRender
+	demoGame.demoState.enter = demoStateEnter
+	demoGame.demoState.update = demoStateUpdate
+	demoGame.demoState.render = demoStateRender
 	demoGame.shutdown = demoShutdown
 	demoGame.name = "DemoGame"
 	demoGame.virtualResolution = {640, 360}
-	dusk.run(&demoGame)
+	dusk.run(demoGame)
 }
 
-WHITE :: dusk.Color{255, 255, 255, 255}
-DROP_SHADOW_COLOR :: dusk.Color{0, 0, 0, 128}
-FPS_TEXT_COLOR :: dusk.Color{64,255,128,255}
+V2ZERO :: rl.Vector2{0,0}
+WHITE  :: rl.Color{255, 255, 255, 255}
+DROP_SHADOW_COLOR :: rl.Color{0, 0, 0, 128}
+FPS_TEXT_COLOR :: rl.Color{64,255,128,255}
 
 MAX_BOUNCERS :: 500_000
 BOUNCERS_PER_SPAWN :: 100
-Position :: struct {
-	using position: dusk.Vector2,
+
+Wiggler :: struct {
+	position:  rl.Vector2,
+	origin:    rl.Vector2,
+	max:       rl.Vector2,
+	timeScale: rl.Vector2,
 }
 
 Bouncer :: struct {
-	using velocity: dusk.Vector2,
-}
-
-Label :: struct {
-	text:            string,
-	fontSize:        i32,
-	color:           dusk.Color,
-	dropShadow:      bool,
-	dropShadowColor: dusk.Color,
-}
-
-Sprite :: struct {
-	texture:  dusk.Texture2D,
-	source:   dusk.Rectangle,
-	scale:    dusk.Vector2,
-	origin:   dusk.Vector2,
-	rotation: f32,
-	color:    dusk.Color,
-}
-
-Wiggler :: struct {
-	origin:    dusk.Vector2,
-	max:       dusk.Vector2,
-	timeScale: dusk.Vector2,
-}
-
-LabelUpdater :: struct {
-	update: proc(label: ^Label, position: ^Position, game: ^Demo),
+	x:f32, y:f32, w:f32, h:f32,
+	vx:f32, vy:f32,
+	active:bool,
+	color:rl.Color
 }
 
 Demo :: struct {
 	using game:      dusk.Game,
-
-	// State
 	musicVolume:     f32,
 	soundVolume:     f32,
-
-	// Assets
-	testImage:       dusk.Texture2D,
-	testSound:       dusk.Sound,
-
-	// ECS
-	world:           ecs.World,
-	logoEnt:         ecs.Entity,
-	howdyEnt:        ecs.Entity,
-	instructionsEnt: ecs.Entity,
-	volumeTextEnt:   ecs.Entity,
+	demoState:       DemoState,
 }
 
-demoStart :: proc(game: ^dusk.Game) -> bool {
-	using self: ^Demo = transmute(^Demo)game
+DemoState :: struct {
+	using state: dusk.State,
+	testImage:       rl.Texture2D,
+	testImgSource:   rl.Rectangle,
+	testSound:       rl.Sound,
 
+	bouncers:[MAX_BOUNCERS]Bouncer,
+
+	bouncerCount:int,
+	logo:Wiggler,
+	fpsString:string,
+	volumeString:string,
+	prevFps:int,
+	prevVolume:f32,
+
+	howdyTextPos:rl.Vector2,
+	fpsTextPos:rl.Vector2,
+	volumeTextPos:rl.Vector2,
+	instructionTextPos:rl.Vector2,
+}
+
+demoStart :: proc(game:^dusk.Game) -> bool {
+	game := cast(^Demo)game
 	log.info("[DEMO]", "Howdy! o/")
+	dusk.PushState(game, &game.demoState)
+	return true
+}
 
-	testSound = dusk.LoadSound("sfx/test.wav")
-	music = dusk.LoadMusicStream("music/test.mp3")
-	testImage = dusk.LoadTexture("art/test.png")
+demoStateEnter :: proc(state:^dusk.State, game: ^dusk.Game) -> bool {
+	log.info("[DEMO]", "Demo State Enter")
+	game := cast(^Demo)game
+	state := cast(^DemoState)state
 
-	musicVolume = 0.75
-	soundVolume = 0.5
-	dusk.SetMusicVolume(music, musicVolume)
-	dusk.SetSoundVolume(testSound, soundVolume)
+	state.testSound = rl.LoadSound("sfx/test.wav")
+	game.music = rl.LoadMusicStream("music/test.mp3")
+	state.testImage = rl.LoadTexture("art/test.png")
+	state.testImgSource.x = 0
+	state.testImgSource.y = 0
+	state.testImgSource.width = f32(state.testImage.width)
+	state.testImgSource.height = f32(state.testImage.height)
+
+	game.musicVolume = 0.75
+	game.soundVolume = 0.5
+	rl.SetMusicVolume(game.music, game.musicVolume)
+	rl.SetSoundVolume(state.testSound, game.soundVolume)
 
 	delay.start(proc(sound: rawptr) {
-			dusk.PlaySound((transmute(^dusk.Sound)sound)^)
-		}, 2, &testSound)
+		rl.PlaySound((cast(^rl.Sound)sound)^)
+		}, 2, &state.testSound)
 
 	delay.start(proc(sound: rawptr) {
-			dusk.PlaySound((transmute(^dusk.Sound)sound)^)
-		}, 3, &testSound)
+		rl.PlaySound((cast(^rl.Sound)sound)^)
+		}, 3, &state.testSound)
 
 	delay.start(proc(music: rawptr) {
-			dusk.PlayMusicStream((transmute(^dusk.Music)music)^)
-		}, 5, &music)
+		rl.PlayMusicStream((cast(^rl.Music)music)^)
+		}, 5, &game.music)
 
 	delayTestMessage: string = "This is a test!"
 	delay.start(proc(message: string) {
 			log.info(message)
 		}, 0.5, delayTestMessage)
 
-	backgroundColor = WHITE
+	game.backgroundColor = WHITE
 
-    delay.start(spawnBouncers, 5, self)
+    delay.start(spawnBouncers, 1, state)
 
-    logoStartPos := Position {  
-		x = screenSize.x / 2 - f32(testImage.width), 
-		y = screenSize.y / 2 - f32(testImage.width)}
-	logoEnt = createSprite(&world, testImage, 2, logoStartPos)
-    logoWiggler := Wiggler { origin = logoStartPos, max = dusk.Vector2{16, 16}, timeScale = dusk.Vector2{1.6, 1}}
-	ecs.addComponent(&world, logoEnt, logoWiggler)
-
-	howdyWidth := f32(dusk.MeasureText("Howdy! o/", 32))
-    howdyPosition := Position{
-		x = screenSize.x / 2 - howdyWidth / 2, 
-		y = screenSize.y / 2 + 100}
-	howdyEnt = createLabel(&world, "Howdy! o/", 32, WHITE, howdyPosition, true)
-
-    instructionsPosition := Position{
-		x = 5, 
-		y = screenSize.y - 13}
-	instructionsEnt = createLabel(&world, "use the [-] and [=] keys to change the music volume", 8, WHITE, instructionsPosition, true)
-
-    volumePosition := Position{
-		x = 5, 
-		y = screenSize.y - 24}
-	volumeTextEnt = createLabel(&world, "MUSIC VOLUME: 75", 8, WHITE, volumePosition, true)
-	ecs.addComponent(&world, volumeTextEnt, LabelUpdater{update = updateVolumeText})
-
-    fpsPos := Position{x = 5, y = 5}
-	fpsEnt := createLabel(&world, "FPS:", 8, FPS_TEXT_COLOR, fpsPos, true)
-	ecs.addComponent(&world, fpsEnt, LabelUpdater{update = updateFpsText})
-
-	return true
-}
-
-demoUpdate :: proc(game: ^dusk.Game, deltTime: f32, runTime: f32) -> bool {
-	using self: ^Demo = transmute(^Demo)game
-
-	if (dusk.IsKeyPressed(.MINUS)) {
-		musicVolume -= 0.01
-		musicVolume = math.min(math.max(musicVolume, 0), 1)
-		dusk.SetMusicVolume(music, musicVolume)
-	}
-
-	if (dusk.IsKeyPressedRepeat(.MINUS)) {
-		musicVolume -= 0.005
-		musicVolume = math.min(math.max(musicVolume, 0), 1)
-		dusk.SetMusicVolume(music, musicVolume)
-	}
-
-	if (dusk.IsKeyPressed(.EQUAL)) {
-		musicVolume += 0.01
-		musicVolume = math.min(math.max(musicVolume, 0), 1)
-		dusk.SetMusicVolume(music, musicVolume)
-	}
-
-	if (dusk.IsKeyPressedRepeat(.EQUAL)) {
-		musicVolume += 0.005
-		musicVolume = math.min(math.max(musicVolume, 0), 1)
-		dusk.SetMusicVolume(music, musicVolume)
-	}
-
-	backgroundColor.r = u8(255 * ((math.sin(runTime / 5) + 1) / 2))
-	backgroundColor.g = u8(255 * ((math.sin(runTime / 6) + 1) / 2))
-	backgroundColor.b = u8(255 * ((math.sin(runTime / 10) + 1) / 2))
-
-	updateWigglers(&world, runTime)
-    updateBouncers(self, deltTime)
-	updateLabels(&world, self)
-
-
-	return true
-}
-
-demoRender :: proc(game: ^dusk.Game) {
-	using self: ^Demo = transmute(^Demo)game
+	state.logo.origin.x = game.screenSize.x / 2 - f32(state.testImage.width)
+	state.logo.origin.y =  game.screenSize.y / 2 - f32(state.testImage.height)
+	state.logo.max.x = 16
+	state.logo.max.y = 16
+	state.logo.timeScale.x = 1.6
+	state.logo.timeScale.y = 1
+	log.info("LOGO @", state.logo.origin)
 	
-	renderBouncers(&world)
-	renderLogo(self)
-	renderLabels(&world)
+	howdyWidth := f32(rl.MeasureText("Howdy! o/", 32))
+	state.howdyTextPos.x = game.screenSize.x / 2 - howdyWidth / 2
+	state.howdyTextPos.y = game.screenSize.y / 2 + 100
+	log.info("Howdy @", state.howdyTextPos)
+
+	state.instructionTextPos.x = 5 
+	state.instructionTextPos.y = game.screenSize.y - 13
+	log.info("Instruction @", state.instructionTextPos)
+
+	state.volumeString = "MUSIC VOLUME: 75"
+	state.volumeTextPos.x = 5
+	state.volumeTextPos.y = game.screenSize.y - 24
+	log.info("Volume @", state.volumeTextPos)
+
+	state.fpsString = "FPS: 0"
+	state.fpsTextPos.x = 5
+	state.fpsTextPos.y = 5
+	log.info("Volume @", state.fpsTextPos)
+	
+	return true
 }
 
-spawnBouncers :: proc(game:rawptr) {
-    using self := transmute(^Demo)game
+demoStateUpdate :: proc(state:^dusk.State, game: ^dusk.Game, deltTime: f32, runTime: f32) -> bool {
+	game := cast(^Demo)game
+	state := cast(^DemoState)state
 
-    logoPosition := ecs.getComponent(&world, logoEnt, Position)
+	if (rl.IsKeyPressed(.MINUS)) {
+		game.musicVolume -= 0.01
+		game.musicVolume = math.min(math.max(game.musicVolume, 0), 1)
+		rl.SetMusicVolume(game.music, game.musicVolume)
+	}
 
-	bouncers := ecs.query(&world, Bouncer)
-	bouncerCount := len(bouncers)
+	if (rl.IsKeyPressedRepeat(.MINUS)) {
+		game.musicVolume -= 0.005
+		game.musicVolume = math.min(math.max(game.musicVolume, 0), 1)
+		rl.SetMusicVolume(game.music, game.musicVolume)
+	}
 
-	if(bouncerCount + BOUNCERS_PER_SPAWN > MAX_BOUNCERS) do return
-    
+	if (rl.IsKeyPressed(.EQUAL)) {
+		game.musicVolume += 0.01
+		game.musicVolume = math.min(math.max(game.musicVolume, 0), 1)
+		rl.SetMusicVolume(game.music, game.musicVolume)
+	}
+
+	if (rl.IsKeyPressedRepeat(.EQUAL)) {
+		game.musicVolume += 0.005
+		game.musicVolume = math.min(math.max(game.musicVolume, 0), 1)
+		rl.SetMusicVolume(game.music, game.musicVolume)
+	}
+
+	game.backgroundColor.r = u8(255 * ((math.sin(runTime / 5) + 1) / 2))
+	game.backgroundColor.g = u8(255 * ((math.sin(runTime / 6) + 1) / 2))
+	game.backgroundColor.b = u8(255 * ((math.sin(runTime / 10) + 1) / 2))
+	
+	state.logo.position.x = state.logo.origin.x + math.sin(runTime * state.logo.timeScale.x) * state.logo.max.x
+	state.logo.position.y = state.logo.origin.y + math.sin(runTime * state.logo.timeScale.y) * state.logo.max.y
+
+	for i in 0..<state.bouncerCount {
+		state.bouncers[i].x += state.bouncers[i].vx * deltTime
+		state.bouncers[i].y += state.bouncers[i].vy * deltTime
+		right := game.screenSize.x - state.bouncers[i].w
+		bottom := game.screenSize.y - state.bouncers[i].h
+		if state.bouncers[i].x <= 0 { 
+			state.bouncers[i].vx *= -1
+			state.bouncers[i].x *= -1
+		} else if state.bouncers[i].x >= right{
+			state.bouncers[i].vx *= -1
+			state.bouncers[i].x = right - (state.bouncers[i].x - right)
+		}
+		if state.bouncers[i].y <= 0 {
+			state.bouncers[i].vy *= -1
+			state.bouncers[i].y *= -1
+		} else if state.bouncers[i].y >= bottom {
+			state.bouncers[i].vy *= -1
+			state.bouncers[i].y = bottom - (state.bouncers[i].y - bottom)
+		}
+	}
+
+	builder1: strings.Builder
+	strings.builder_init_len_cap(&builder1, 0, 256, context.temp_allocator)
+	strings.write_string(&builder1, "MUSIC VOLUME: ")
+	strings.write_int(&builder1, int(game.musicVolume * 100))
+	state.volumeString = strings.to_string(builder1)
+	
+	builder2: strings.Builder
+	strings.builder_init_len_cap(&builder2, 0, 256, context.temp_allocator)
+	strings.write_string(&builder2, "FPS: ")
+	strings.write_int(&builder2, game.fps)
+	strings.write_string(&builder2, "\nBouncers: ")
+	strings.write_int(&builder2, state.bouncerCount)
+	state.fpsString = strings.to_string(builder2)
+		
+	return true
+}
+
+demoStateRender :: proc(state:^dusk.State, game: ^dusk.Game) {
+	state := cast(^DemoState)state
+	
+	for i in 0..<state.bouncerCount {
+		dstRect := rl.Rectangle {
+			x=state.bouncers[i].x, y=state.bouncers[i].y, width=state.bouncers[i].w, height = state.bouncers[i].h
+		}
+		rl.DrawTexturePro(state.testImage, state.testImgSource, dstRect, V2ZERO, 0, state.bouncers[i].color)
+	}
+
+	rl.DrawTexturePro(
+		state.testImage, 
+		state.testImgSource, 
+		{ 
+			x = state.logo.position.x,  
+			y = state.logo.position.y,  
+			width = state.testImgSource.width*2,  
+			height = state.testImgSource.height*2,
+		}, 
+		V2ZERO, 
+		0, 
+		WHITE,
+	)
+	
+	rl.DrawText("Howdy! o/", i32(state.howdyTextPos.x) + 1, i32(state.howdyTextPos.y) + 1, 32, DROP_SHADOW_COLOR)
+	rl.DrawText("Howdy! o/", i32(state.howdyTextPos.x),     i32(state.howdyTextPos.y),     32, WHITE)
+	
+	fpsCStr := strings.clone_to_cstring(state.fpsString)
+	rl.DrawText(fpsCStr, i32(state.fpsTextPos.x) + 1, i32(state.fpsTextPos.y) + 1, 8, DROP_SHADOW_COLOR)
+	rl.DrawText(fpsCStr, i32(state.fpsTextPos.x),     i32(state.fpsTextPos.y),     8, FPS_TEXT_COLOR)
+	
+	volumeCStr := strings.clone_to_cstring(state.volumeString) 
+	rl.DrawText(volumeCStr, i32(state.volumeTextPos.x) + 1, i32(state.volumeTextPos.y) + 1, 8, DROP_SHADOW_COLOR)
+	rl.DrawText(volumeCStr, i32(state.volumeTextPos.x),     i32(state.volumeTextPos.y),     8, WHITE)
+	
+	rl.DrawText("Press the [-] or [+] keys to change the volume.", i32(state.instructionTextPos.x) + 1, i32(state.instructionTextPos.y) + 1, 8, DROP_SHADOW_COLOR)
+	rl.DrawText("Press the [-] or [+] keys to change the volume.", i32(state.instructionTextPos.x),     i32(state.instructionTextPos.y),     8, WHITE)
+}
+
+spawnBouncers :: proc(state:rawptr) {
+	state := cast(^DemoState)state
+
+	if(state.bouncerCount + BOUNCERS_PER_SPAWN > MAX_BOUNCERS) do return
     for i in 0..< BOUNCERS_PER_SPAWN {
-		bouncerStartPos := Position {
-			x = logoPosition.x + f32(testImage.width) / 2,
-			y = logoPosition.y + f32(testImage.height) / 2, 
-		}
-
-        bouncer := Bouncer { 
-			x = rand.float32_range(-100, 100), 
-			y = rand.float32_range(-100, 100)
-		}
-		
-		bouncerColor := dusk.Color { 
-			u8(int(bouncer.x) % 256), 
+		state.bouncers[state.bouncerCount+i].x = state.logo.position.x + f32(state.testImage.width)/2
+		state.bouncers[state.bouncerCount+i].y = state.logo.position.y + f32(state.testImage.height)/2
+		state.bouncers[state.bouncerCount+i].w = f32(state.testImage.width) //* scale
+		state.bouncers[state.bouncerCount+i].h = f32(state.testImage.height) //* scale
+		state.bouncers[state.bouncerCount+i].vx = rand.float32_range(-100, 100)
+		state.bouncers[state.bouncerCount+i].vy = rand.float32_range(-100, 100)
+        state.bouncers[state.bouncerCount+i].color = rl.Color{ 
+			u8(int(state.bouncers[state.bouncerCount+i].vx) % 256), 
 			u8(i % 256), 
-			u8(int(bouncer.y) % 256), 
-			255
-		}
-        spriteEntity := createSprite(&world, testImage, 1, bouncerStartPos, bouncerColor)
-		ecs.addComponent(&world, spriteEntity, bouncer)
+			u8(int(state.bouncers[state.bouncerCount+i].vy) % 256), 
+			255}
+			state.bouncers[state.bouncerCount+i].active = true
     }
 
-	if fps < 60 do return
-    delay.start(spawnBouncers, 0, self)
-}
+	state.bouncerCount += BOUNCERS_PER_SPAWN
 
-updateWigglers :: proc(world: ^ecs.World, runTime: f32) {
-	wigglers := ecs.query(world, Position, Wiggler)
-	for ent in wigglers {
-		position := ent.value1
-		wiggler := ent.value2
-		position.x = wiggler.origin.x + math.sin(runTime * wiggler.timeScale.x) * wiggler.max.x
-		position.y = wiggler.origin.y + math.sin(runTime * wiggler.timeScale.y) * wiggler.max.y
-	}
-}
-
-updateBouncers :: proc(game:^Demo, deltaTime: f32) {
-	using self := game
-    bouncers := ecs.query(&world, Position, Bouncer)
-    
-	for entity in bouncers {
-        position := entity.value1
-        velocity := entity.value2
-
-        position.x += velocity.x * deltaTime
-        position.y += velocity.y * deltaTime
-
-        right := screenSize.x - f32(testImage.width)
-		bottom := screenSize.y - f32(testImage.width)
-
-		if position.x <= 0 { 
-			velocity.x *= -1
-			position.x *= -1
-		} else if position.x >= right{
-			velocity.x *= -1
-			position.x = right - (position.x - right)
-		}
-		if position.y <= 0 {
-			velocity.y *= -1
-			position.y *= -1
-		} else if position.y >= bottom {
-			velocity.y *= -1
-			position.y = bottom - (position.y - bottom)
-		}
-    }
-}
-
-createLabel :: proc(world: ^ecs.World, text: string, fontSize: i32, color: dusk.Color, position: Position, dropShadow: bool = false, dropShadowColor: dusk.Color = DROP_SHADOW_COLOR ) -> ecs.Entity {
-    label := ecs.createEntity(world)
-    ecs.addComponent(world, label, position)
-	ecs.addComponent(world, label, Label { text = text, fontSize = fontSize, color = color, dropShadow = dropShadow, dropShadowColor = dropShadowColor})
-    return label
-}
-
-updateLabels :: proc(world: ^ecs.World, game: ^Demo) {
-	labelUpdaters := ecs.query(world, Position, Label, LabelUpdater)
-	for ent in labelUpdaters {
-		position := ent.value1
-		label := ent.value2
-		updater := ent.value3
-		updater.update(label, position, game)
-	}
-}
-
-renderLabels :: proc(world: ^ecs.World) {
-	labelRenderers := ecs.query(world, Position, Label)
-	for ent in labelRenderers {
-		position := ent.value1
-		label := ent.value2
-		text := strings.clone_to_cstring(label.text, context.temp_allocator)
-		if (label.dropShadow) {
-			dusk.DrawText(
-				text,
-				i32(position.x) + 1,
-				i32(position.y) + 1,
-				label.fontSize,
-				label.dropShadowColor,
-			)
-		}
-		dusk.DrawText(text, i32(position.x), i32(position.y), label.fontSize, label.color)
-		
-	}
-}
-
-createSprite :: proc(world: ^ecs.World, texture: dusk.Texture2D, scale:f32, position:Position, color:dusk.Color = WHITE) -> ecs.Entity {  
-	spriteEntity := ecs.createEntity(world)
-    ecs.addComponent(world, spriteEntity, position)
-	ecs.addComponent(
-		world,
-		spriteEntity,
-		Sprite { texture = texture, source = {0, 0, f32(texture.width), f32(texture.height)},
-			scale = {scale, scale}, origin = {0, 0}, rotation = 0, color = color, 
-        }
-	)
-    return spriteEntity
-}
-
-renderBouncers :: proc(world: ^ecs.World) {
-	spriteRenderers := ecs.query(world, Position, Sprite, Bouncer)
-
-    slice.sort_by(spriteRenderers, proc(i, j:ecs.QueryResult3(Position,Sprite,Bouncer)) -> bool {
-        return i.entity < j.entity
-    })
-
-	for ent in spriteRenderers {
-		position   := ent.value1
-		sprite     := ent.value2
-		dstWidth := f32(sprite.texture.width) * sprite.scale.x
-		dstHeight := f32(sprite.texture.height) * sprite.scale.y
-		dusk.DrawTexturePro(
-			sprite.texture,
-			sprite.source,
-			{x = position.x, y = position.y, width = dstWidth, height = dstHeight},
-			sprite.origin,
-			sprite.rotation,
-			sprite.color,
-		)
-	}
-}
-
-renderLogo :: proc(game:^Demo) {
-	using self := game
-
-	position   := ecs.getComponent(&world, logoEnt, Position)
-	sprite     := ecs.getComponent(&world, logoEnt, Sprite)
-	dstWidth := f32(sprite.texture.width) * sprite.scale.x
-	dstHeight := f32(sprite.texture.height) * sprite.scale.y
-	dusk.DrawTexturePro(
-		sprite.texture,
-		sprite.source,
-		{x = position.x, y = position.y, width = dstWidth, height = dstHeight},
-		sprite.origin,
-		sprite.rotation,
-		sprite.color,
-	)
+	fps := rl.GetFPS()
+	if fps < 30 do return
+    delay.start(spawnBouncers, 0, state)
 }
 
 demoShutdown :: proc(game: ^dusk.Game) {
-	using self: ^Demo = transmute(^Demo)game
-}
-
-updateVolumeText :: proc(label: ^Label, position: ^Position, game: ^Demo) {
-	using self := game
-
-
-	builder: strings.Builder
-	strings.builder_init_none(&builder)
-	strings.write_string(&builder, "MUSIC VOLUME: ")
-	strings.write_int(&builder, int(musicVolume * 100))
-	label.text = strings.to_string(builder)
-}
-
-updateFpsText :: proc(label: ^Label, position: ^Position, game: ^Demo) {
-    using self := game
-
-    bouncers := ecs.query(&world, Bouncer)
-    bouncerCount := len(bouncers)
-
-	builder: strings.Builder
-	strings.builder_init_none(&builder)
-	strings.write_string(&builder, "FPS: ")
-	strings.write_int(&builder, game.fps)
-    strings.write_string(&builder, "\nBouncers: ")
-	strings.write_int(&builder, bouncerCount)
-	label.text = strings.to_string(builder)
+	log.info("[DEMO]", "Later! o/")
 }
