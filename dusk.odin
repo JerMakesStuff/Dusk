@@ -10,34 +10,40 @@ import rl "vendor:raylib"
 import "core:log"
 import "core:time"
 
-import "delay"
-import "logger"
-
 run :: proc(game:^Game) {
 
-    context.logger = logger.create()
+    context.logger = create_logger()
     context.user_ptr = game
 
+    game.settings = load_settings("settings.ini")
+
     // INIT RAYLIB WINDOW
-    rl.SetConfigFlags({.VSYNC_HINT})
     rl.SetConfigFlags({.WINDOW_RESIZABLE})
-    rl.InitWindow(1280, 720, strings.clone_to_cstring(game.name))
-    game.screenSize.x = f32(rl.GetScreenWidth())
-    game.screenSize.y = f32(rl.GetScreenHeight())
+    if(game.settings.vsync) {
+        rl.SetConfigFlags({.VSYNC_HINT}) 
+    }
+    if(game.settings.fullscreen) {
+        rl.SetConfigFlags({.FULLSCREEN_MODE})
+    }
+    
+    rl.InitWindow(game.settings.resolution.x, game.settings.resolution.y, strings.clone_to_cstring(game.name))
+    game.screen_size.x = rl.GetScreenWidth()
+    game.screen_size.y = rl.GetScreenHeight()
     defer rl.CloseWindow()
 
-    useVirtualResolution := game.virtualResolution.x != 0 && game.virtualResolution.y != 0
+    use_vertual_resolution := game.virtual_resolution.x != 0 && game.virtual_resolution.y != 0
     renderTexture:rl.RenderTexture
     renderTextureSrc:rl.Rectangle
-    renderTextureDest:= rl.Rectangle{0,0, game.screenSize.x, game.screenSize.y}
+    renderTextureDest:= rl.Rectangle{0,0, cast(f32)game.screen_size.x, cast(f32)game.screen_size.y}
     renderTextureAspect :f32 = 16/9
-    if(useVirtualResolution) {
-        game.screenSize.x = f32(game.virtualResolution.x)
-        game.screenSize.y = f32(game.virtualResolution.y)
-        renderTexture = rl.LoadRenderTexture(game.virtualResolution.x, game.virtualResolution.y)
-        renderTextureSrc = rl.Rectangle{0,0,f32(renderTexture.texture.width),f32(-renderTexture.texture.height)}
-        renderTextureAspect = renderTextureSrc.width / -renderTextureSrc.height
+    
+    if(use_vertual_resolution) {
+        game.screen_size = game.virtual_resolution
     }
+
+    renderTexture = rl.LoadRenderTexture(game.screen_size.x, game.screen_size.y)
+    renderTextureSrc = rl.Rectangle{0,0,f32(renderTexture.texture.width),f32(-renderTexture.texture.height)}
+    renderTextureAspect = renderTextureSrc.width / -renderTextureSrc.height
 
     // INIT RAYLIB AUDIO
     rl.InitAudioDevice()
@@ -47,114 +53,113 @@ run :: proc(game:^Game) {
     if !game->start() do return
     defer game->shutdown()
 
-    startTime:time.Tick
-    renderStartTime:time.Tick
-    updateDataTime:time.Duration
-    updateDelaysTime:time.Duration
-    updateMusicTime:time.Duration
-    updateGameTime:time.Duration
-    lateUpdateGameTime:time.Duration
-    gameRenderTime:time.Duration
-    gamePostRenderTime:time.Duration
-    renderTime:time.Duration
-    totalDrawingTime:time.Duration
-    allocatorFreeTime:time.Duration
+    start_time:time.Tick
+    render_start_time:time.Tick
+    update_data_time:time.Duration
+    update_delays_time:time.Duration
+    update_music_time:time.Duration
+    update_game_time:time.Duration
+    game_render_time:time.Duration
+    render_time:time.Duration
+    total_drawing_time:time.Duration
+    allocator_free_time:time.Duration
+
+    screenWidth := f32(rl.GetScreenWidth())
+    screenHeight := f32(rl.GetScreenHeight())
 
     // GAME LOOP
     for !rl.WindowShouldClose() {
-        startTime = time.tick_now()
+        start_time = time.tick_now()
         deltaTime := rl.GetFrameTime()
         runTime := f32(rl.GetTime())
         game.fps = int(rl.GetFPS())
-        screenWidth := f32(rl.GetScreenWidth())
-        screenHeight := f32(rl.GetScreenHeight())
-        if !useVirtualResolution {
-            game.screenSize.x = screenWidth
-            game.screenSize.y = screenHeight
-        } else {
-            renderTextureDest.height = screenHeight
-            renderTextureDest.width = screenHeight*renderTextureAspect
-            renderTextureDest.x = screenWidth / 2 - renderTextureDest.width / 2
-        }
-        updateDataTime = time.tick_since(startTime)
 
-        startTime = time.tick_now()
-        delay.update(deltaTime)
-        updateDelaysTime = time.tick_since(startTime)
 
-        startTime = time.tick_now()
+        if rl.IsWindowResized() {
+            screenWidth = f32(rl.GetScreenWidth())
+            screenHeight = f32(rl.GetScreenHeight())
+            if !use_vertual_resolution {
+                game.screen_size.x = cast(i32)screenWidth
+                game.screen_size.y = cast(i32)screenHeight
+                renderTextureDest.width = screenWidth
+                renderTextureDest.height = screenHeight
+            } else {
+                renderTextureDest.width = screenHeight*renderTextureAspect
+                renderTextureDest.height = screenHeight
+                renderTextureDest.x = screenWidth / 2 - renderTextureDest.width / 2
+            }
+        }       
+
+        update_data_time = time.tick_since(start_time)
+
+        start_time = time.tick_now()
+        update_delays(deltaTime)
+        update_delays_time = time.tick_since(start_time)
+
+        start_time = time.tick_now()
         if(rl.IsMusicStreamPlaying(game.music)) {
             rl.UpdateMusicStream(game.music)
         }
-        updateMusicTime = time.tick_since(startTime)
+        update_music_time = time.tick_since(start_time)
 
         // UPDATE GAME
 
-        currentState := game.states[game.stateCount-1] if game.stateCount > 0 else nil
-        if currentState == nil do break
+        current_state := game.states[game.state_count-1] if game.state_count > 0 else nil
+        if current_state == nil do break
     
-        startTime = time.tick_now()
-        if currentState.update != nil {
-            if !currentState->update(game, deltaTime, runTime) do break
+        start_time = time.tick_now()
+        if current_state.update != nil {
+            if !current_state->update(game, deltaTime, runTime) do break
         }
-        updateGameTime = time.tick_since(startTime)
-
-        startTime = time.tick_now()
-        if currentState.lateUpdate != nil {
-            currentState->lateUpdate(game, deltaTime, runTime)
-        }
-        lateUpdateGameTime = time.tick_since(startTime)
+        update_game_time = time.tick_since(start_time)
     
         // BEGIN DRAWING
-        renderStartTime = time.tick_now()
-        rl.BeginDrawing()
-        if(useVirtualResolution) {
+        render_start_time = time.tick_now()
+        {
             rl.BeginTextureMode(renderTexture)
-        }
+            defer rl.EndTextureMode()
+
+            rl.ClearBackground(game.clear_color)
+
+            start_time = time.tick_now()
+            if current_state.render != nil {
+                current_state->render(game)
+            }
+            game_render_time = time.tick_since(start_time)
+        }        
         
-        rl.ClearBackground(game.backgroundColor)
-        
-        startTime = time.tick_now()
-       
-        if currentState.render != nil {
-            currentState->render(game)
-        }
-        gameRenderTime = time.tick_since(startTime)
+        start_time = time.tick_now()
+        {
+            rl.BeginDrawing()
+            defer rl.EndDrawing()
 
-        if(useVirtualResolution) {
-            rl.EndTextureMode()
-        }
-
-        startTime = time.tick_now()
-        if currentState.postRender != nil {
-            currentState->postRender(game)
-        }
-        gamePostRenderTime = time.tick_since(startTime)
-
-        if(useVirtualResolution) {
-            V2ZERO :: rl.Vector2{0,0}
+            if(game.use_post_processing_shader) {
+                rl.BeginShaderMode(game.post_processing_shader)
+            }
+            defer if(game.use_post_processing_shader) {
+                rl.EndShaderMode()
+            }
+            
             rl.DrawTexturePro(renderTexture.texture, renderTextureSrc, renderTextureDest, V2ZERO, 0, rl.WHITE)
         }
 
-        startTime = time.tick_now()
-        rl.EndDrawing()
-        renderTime = time.tick_since(startTime)
-        totalDrawingTime = time.tick_since(renderStartTime)
+        render_time = time.tick_since(start_time)
+        total_drawing_time = time.tick_since(render_start_time)
+        start_time = time.tick_now()
 
-        startTime = time.tick_now()
         // FREE OUR TEMP ALLOCATOR AT THE END OF THE FRAME
         free_all(context.temp_allocator)
-        allocatorFreeTime = time.tick_since(startTime)
+        allocator_free_time = time.tick_since(start_time)
     }
 
-    log.info("[DUSK]", "Update Data Time:", updateDataTime)
-    log.info("[DUSK]", "Update Delays:", updateDelaysTime)
-    log.info("[DUSK]", "Update Music:", updateMusicTime)
-    log.info("[DUSK]", "Update Game:", updateGameTime)
-    log.info("[DUSK]", "Late Update Game:", lateUpdateGameTime)
-    log.info("[DUSK]", "Render Game Time:", gameRenderTime)
-    log.info("[DUSK]", "Post Render Game Time:", gamePostRenderTime)
-    log.info("[DUSK]", "Present Time:", renderTime)
-    log.info("[DUSK]", "Total Drawing Time:", totalDrawingTime)
-    log.info("[DUSK]", "Temp Allocator Free Time:", allocatorFreeTime)
+    log.info("[DUSK]", "Update Data Time:", update_data_time)
+    log.info("[DUSK]", "Update Delays:", update_delays_time)
+    log.info("[DUSK]", "Update Music:", update_music_time)
+    log.info("[DUSK]", "Update Game:", update_game_time)
+    log.info("[DUSK]", "Render Game Time:", game_render_time)
+    log.info("[DUSK]", "Present Time:", render_time)
+    log.info("[DUSK]", "Total Drawing Time:", total_drawing_time)
+    log.info("[DUSK]", "Temp Allocator Free Time:", allocator_free_time)
 }
+
+V2ZERO :: rl.Vector2{0,0}

@@ -2,11 +2,11 @@
 /// Copyright (c) 2024 JerMakesStuff
 /// See LICENSE
 
-package delay
+package dusk
 
 @(private)
 Delay :: struct {
-	timeRemaining: f32,
+	time_remaining: f32,
 	updatable:bool,
 	call:          union {
 		DelayCall,
@@ -17,30 +17,36 @@ Delay :: struct {
 		DelayCallWithRawPtr,
 	},
 }
+
 @(private)
 DelayCall :: struct {
 	callback: proc(),
 }
+
 @(private)
 DelayCallWithI64 :: struct {
 	callback: proc(_: i64),
 	param:    i64,
 }
+
 @(private)
 DelayCallWithF64 :: struct {
 	callback: proc(_: f64),
 	param:    f64,
 }
+
 @(private)
 DelayCallWithBool :: struct {
 	callback: proc(_: bool),
 	param:    bool,
 }
+
 @(private)
 DelayCallWithString :: struct {
 	callback: proc(_: string),
 	param:    string,
 }
+
 @(private)
 DelayCallWithRawPtr :: struct {
 	callback: proc(_: rawptr),
@@ -50,78 +56,78 @@ DelayCallWithRawPtr :: struct {
 @(private)
 delays: [dynamic]Delay
 
-start_no_param :: proc(callback: proc(), delayInSeconds: f32) {
-	append(&delays, Delay{timeRemaining = delayInSeconds, call = DelayCall{callback = callback}})
+start_delay_no_param :: proc(callback: proc(), delay_in_seconds: f32) {
+	append(&delays, Delay{time_remaining = delay_in_seconds, call = DelayCall{callback = callback}})
 }
 
-start_with_i64 :: proc(callback: proc(_: i64), delayInSeconds: f32, param: i64) {
+start_delay_with_i64 :: proc(callback: proc(_: i64), delay_in_seconds: f32, param: i64) {
 	append(
 		&delays,
 		Delay {
-			timeRemaining = delayInSeconds,
+			time_remaining = delay_in_seconds,
 			call = DelayCallWithI64{callback = callback, param = param},
 		},
 	)
 }
 
-start_with_f64 :: proc(callback: proc(_: f64), delayInSeconds: f32, param: f64) {
+start_delay_with_f64 :: proc(callback: proc(_: f64), delay_in_seconds: f32, param: f64) {
 	append(
 		&delays,
 		Delay {
-			timeRemaining = delayInSeconds,
+			time_remaining = delay_in_seconds,
 			call = DelayCallWithF64{callback = callback, param = param},
 		},
 	)
 }
 
-start_with_bool :: proc(callback: proc(_: bool), delayInSeconds: f32, param: bool) {
+start_delay_with_bool :: proc(callback: proc(_: bool), delay_in_seconds: f32, param: bool) {
 	append(
 		&delays,
 		Delay {
-			timeRemaining = delayInSeconds,
+			time_remaining = delay_in_seconds,
 			call = DelayCallWithBool{callback = callback, param = param},
 		},
 	)
 }
 
-start_with_string :: proc(callback: proc(_: string), delayInSeconds: f32, param: string) {
+start_delay_with_string :: proc(callback: proc(_: string), delay_in_seconds: f32, param: string) {
 	append(
 		&delays,
 		Delay {
-			timeRemaining = delayInSeconds,
+			time_remaining = delay_in_seconds,
 			call = DelayCallWithString{callback = callback, param = param},
 		},
 	)
 }
 
-start_with_rawptr :: proc(callback: proc(_: rawptr), delayInSeconds: f32, param: rawptr) {
+start_delay_with_rawptr :: proc(callback: proc(_: rawptr), delay_in_seconds: f32, param: rawptr) {
 	append(
 		&delays,
 		Delay {
-			timeRemaining = delayInSeconds,
+			time_remaining = delay_in_seconds,
 			call = DelayCallWithRawPtr{callback = callback, param = param},
 		},
 	)
 }
 
-start :: proc {
-	start_no_param,
-	start_with_i64,
-	start_with_f64,
-	start_with_bool,
-	start_with_string,
-	start_with_rawptr,
+start_delay :: proc {
+	start_delay_no_param,
+	start_delay_with_i64,
+	start_delay_with_f64,
+	start_delay_with_bool,
+	start_delay_with_string,
+	start_delay_with_rawptr,
 }
 
-update :: proc(dt: f32) {
-	toremove: [dynamic]int
+update_delays :: proc(dt: f32, allocator:=context.temp_allocator) {
+	toremove := make([dynamic]int, allocator)
 	for &delay, idx in delays {
 		if !delay.updatable {
 			delay.updatable = true
 			continue
 		}
-		delay.timeRemaining -= dt
-		if (delay.timeRemaining <= 0) {
+		delay.time_remaining -= dt
+		if (delay.time_remaining <= 0) {
 			switch call in delay.call {
 			case DelayCall:
 				call.callback()

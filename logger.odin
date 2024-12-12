@@ -1,11 +1,11 @@
 /// MIT License
 /// Copyright (c) 2024 JerMakesStuff
 /// See LICENSE
-package logger
+package dusk
 
 import "core:log"
 
-create :: proc () -> log.Logger {
+create_logger :: proc () -> log.Logger {
     return log.create_console_logger(
         lowest = .Debug when ODIN_DEBUG else .Info,
         opt = log.Options{

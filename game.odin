@@ -4,19 +4,28 @@
 
 package dusk
 
-import "vendor:raylib"
+import rl "vendor:raylib"
 
 MAX_STATES :: 10
 
 Game :: struct {
     name:string,
-    backgroundColor:raylib.Color,
-    music:raylib.Music,
-    screenSize:raylib.Vector2,
+
+    settings:Settings,
+
+    screen_size:[2]i32,
+    virtual_resolution:[2]i32,
+
+    clear_color:rl.Color,
+    post_processing_shader:rl.Shader,
+    use_post_processing_shader:bool,
+
     fps:int,
-    virtualResolution:[2]i32,
+
+    music:rl.Music,
+
     states:[MAX_STATES]^State,
-    stateCount:i32,
+    state_count:i32,
 
     // Return false if something went and you would like to abort the launch of the game
     start:proc(self:^Game) -> bool,
@@ -25,19 +34,19 @@ Game :: struct {
     shutdown:proc(self:^Game),
 }
 
-PushState :: proc(game:^Game, state:^State) -> bool {
-    if game.stateCount == MAX_STATES do return false
-    if game.stateCount > 0 && game.states[game.stateCount-1].exit != nil do game.states[game.stateCount-1]->exit(game)
-    game.states[game.stateCount] = state
+push_state :: proc(game:^Game, state:^State) -> bool {
+    if game.state_count == MAX_STATES do return false
+    if game.state_count > 0 && game.states[game.state_count-1].exit != nil do game.states[game.state_count-1]->exit(game)
+    game.states[game.state_count] = state
     if state.enter != nil do state->enter(game)
-    game.stateCount += 1
+    game.state_count += 1
     return true
 }
 
-PopState :: proc(game:^Game) -> bool {
-    if game.stateCount == 0 do return false
-    if game.states[game.stateCount-1].exit != nil do game.states[game.stateCount-1]->exit(game)
-    game.states[game.stateCount-1] = nil
-    game.stateCount -= 1
+pop_state :: proc(game:^Game) -> bool {
+    if game.state_count == 0 do return false
+    if game.states[game.state_count-1].exit != nil do game.states[game.state_count-1]->exit(game)
+    game.states[game.state_count-1] = nil
+    game.state_count -= 1
     return true
 }
