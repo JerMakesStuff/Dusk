@@ -13,7 +13,7 @@ I made it to make the start of a project more enjoyable for me.
 ## Template
 I've made a repository template starting new dusk based projects.
 
-[dusk-project-template](https://github.com/JerMakesStuff/dusk-project-tempate)
+[dusk-project-template](https://github.com/JerMakesStuff/dusk-project-template)
 
 ## Features
 
