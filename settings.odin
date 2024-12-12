@@ -19,7 +19,7 @@ Settings :: struct {
 load_settings :: proc(filename:string) -> Settings {
     settings : Settings = {}
 
-    settings_map, error, settings_loaded := ini.load_map_from_path(filename, context.temp_allocator)
+    settings_map, _, settings_loaded := ini.load_map_from_path(filename, context.temp_allocator)
     settings._map = settings_map
 
     if(!settings_loaded) {
