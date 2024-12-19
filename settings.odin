@@ -3,7 +3,7 @@ package dusk
 import "core:log"
 import "core:encoding/ini"
 import "core:strconv"
-import "core:fmt"
+@require import "core:fmt"
 
 Settings :: struct {
     resolution:[2]i32,
@@ -110,7 +110,6 @@ get_setting_from_map_as_bool :: proc(settings_map:ini.Map, category:string, sett
 @private
 get_setting_from_map_as_enum :: proc(settings_map:ini.Map, category:string, setting_name:string, default_value:$T) -> T {
     default_string, _ := fmt.enum_value_to_string(default_value)
-    fmt.println(default_string)
     value := get_setting_from_map_as_string(settings_map, category, setting_name, default_string)
     
     return_value, ok := fmt.string_to_enum_value(T, value)
