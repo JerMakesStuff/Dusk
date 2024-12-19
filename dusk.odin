@@ -6,6 +6,7 @@ package dusk
 
 import "base:builtin"
 
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:strings"
@@ -14,6 +15,8 @@ import "core:time"
 import rl "vendor:raylib"
 
 V2ZERO :: rl.Vector2{0,0}
+TIMING_FRAMES_TO_AVERAGE    :: 60
+SECONDS_BETWEEN_TIMING_LOGS :: 60
 
 run :: proc(game:^Game) {
 
@@ -63,27 +66,20 @@ run :: proc(game:^Game) {
     if !game->start() do return
     defer game->shutdown()
 
-    start_time:time.Tick
-    render_start_time:time.Tick
-    update_data_time:time.Duration
-    update_delays_time:time.Duration
-    update_music_time:time.Duration
-    update_game_time:time.Duration
-    game_render_time:time.Duration
-    render_time:time.Duration
-    total_drawing_time:time.Duration
-    allocator_free_time:time.Duration
-
     screenWidth := f32(rl.GetScreenWidth())
     screenHeight := f32(rl.GetScreenHeight())
 
+    timings:Timings
+    prev_timings:[TIMING_FRAMES_TO_AVERAGE]Timings
+    prev_timing_index := 0
+    last_timing_log := time.tick_now()
+
     // GAME LOOP
     for !rl.WindowShouldClose() {
-        start_time = time.tick_now()
+        timings.start_time = time.tick_now()
         deltaTime := rl.GetFrameTime()
         runTime := f32(rl.GetTime())
         game.fps = int(rl.GetFPS())
-
 
         if rl.IsWindowResized() {
             screenWidth = f32(rl.GetScreenWidth())
@@ -100,62 +96,94 @@ run :: proc(game:^Game) {
             }
         }       
 
-        update_data_time = time.tick_since(start_time)
+        timings.update_data_time = time.tick_since(timings.start_time)
 
-        start_time = time.tick_now()
+        timings.start_time = time.tick_now()
         update_delays(deltaTime)
-        update_delays_time = time.tick_since(start_time)
+        timings.update_delays_time = time.tick_since(timings.start_time)
 
-        start_time = time.tick_now()
+        timings.start_time = time.tick_now()
         if(rl.IsMusicStreamPlaying(game.music)) {
             rl.UpdateMusicStream(game.music)
         }
-        update_music_time = time.tick_since(start_time)
+        timings.update_music_time = time.tick_since(timings.start_time)
 
         // UPDATE GAME
 
         current_state := game.states[game.state_count-1] if game.state_count > 0 else nil
         if current_state == nil do break
     
-        start_time = time.tick_now()
+        timings.start_time = time.tick_now()
         if current_state.update != nil {
             if !current_state->update(game, deltaTime, runTime) do break
         }
-        update_game_time = time.tick_since(start_time)
+        timings.update_game_time = time.tick_since(timings.start_time)
     
         // BEGIN DRAWING
-        render_start_time = time.tick_now()
+        timings.render_start_time = time.tick_now()
         {
             rl.BeginTextureMode(renderTexture)
             defer rl.EndTextureMode()
 
             rl.ClearBackground(game.clear_color)
 
-            start_time = time.tick_now()
+            timings.start_time = time.tick_now()
             if current_state.render != nil {
                 current_state->render(game)
             }
-            game_render_time = time.tick_since(start_time)
+            timings.game_render_time = time.tick_since(timings.start_time)
         }        
         
-        start_time = time.tick_now()
+        timings.start_time = time.tick_now()
         {
             rl.BeginDrawing()
             defer rl.EndDrawing()
 
-            if(game.use_post_processing_shader) {
-                rl.BeginShaderMode(game.post_processing_shader)
+            {
+                if(game.use_post_processing_shader) {
+                    rl.BeginShaderMode(game.post_processing_shader)
+                }
+                defer if(game.use_post_processing_shader) {
+                    rl.EndShaderMode()
+                }
+                rl.DrawTexturePro(renderTexture.texture, renderTextureSrc, renderTextureDest, V2ZERO, 0, rl.WHITE)
             }
-            defer if(game.use_post_processing_shader) {
-                rl.EndShaderMode()
+
+            averaged_timings:Timings
+            for pt in prev_timings {
+                averaged_timings.allocator_free_time += pt.allocator_free_time
+                averaged_timings.game_render_time    += pt.game_render_time
+                averaged_timings.render_time         += pt.render_time
+                averaged_timings.total_drawing_time  += pt.total_drawing_time
+                averaged_timings.update_data_time    += pt.update_data_time
+                averaged_timings.update_delays_time  += pt.update_delays_time
+                averaged_timings.update_game_time    += pt.update_game_time
+                averaged_timings.update_music_time   += pt.update_music_time
             }
             
-            rl.DrawTexturePro(renderTexture.texture, renderTextureSrc, renderTextureDest, V2ZERO, 0, rl.WHITE)
+            averaged_timings.allocator_free_time /= TIMING_FRAMES_TO_AVERAGE
+            averaged_timings.game_render_time    /= TIMING_FRAMES_TO_AVERAGE
+            averaged_timings.render_time         /= TIMING_FRAMES_TO_AVERAGE
+            averaged_timings.total_drawing_time  /= TIMING_FRAMES_TO_AVERAGE
+            averaged_timings.update_data_time    /= TIMING_FRAMES_TO_AVERAGE
+            averaged_timings.update_delays_time  /= TIMING_FRAMES_TO_AVERAGE
+            averaged_timings.update_game_time    /= TIMING_FRAMES_TO_AVERAGE
+            averaged_timings.update_music_time   /= TIMING_FRAMES_TO_AVERAGE
+
+            if should_draw_frame_info {
+                draw_frame_info(averaged_timings)
+            }
+
+            if time.duration_seconds(time.tick_diff(last_timing_log, time.tick_now())) > SECONDS_BETWEEN_TIMING_LOGS {
+                log_timings(averaged_timings)
+                last_timing_log = time.tick_now()
+            }
         }
 
-        render_time = time.tick_since(start_time)
-        total_drawing_time = time.tick_since(render_start_time)
-        start_time = time.tick_now()
+        timings.render_time = time.tick_since(timings.start_time)
+        timings.total_drawing_time = time.tick_since(timings.render_start_time)
+        timings.start_time = time.tick_now()
+
         // CHECK FOR BAD FREES
         if len(tracking_allocator.bad_free_array) > 0 {
             for bad_free in tracking_allocator.bad_free_array {
@@ -166,17 +194,94 @@ run :: proc(game:^Game) {
 
         // FREE OUR TEMP ALLOCATOR AT THE END OF THE FRAME
         free_all(context.temp_allocator)
-        allocator_free_time = time.tick_since(start_time)
+        timings.allocator_free_time = time.tick_since(timings.start_time)
+
+        prev_timings[prev_timing_index] = timings
+        prev_timing_index += 1
+        if(prev_timing_index >= TIMING_FRAMES_TO_AVERAGE) {
+            prev_timing_index = 0
+        }
     }
 
-    log.info("[DUSK]", "Update Data Time:", update_data_time)
-    log.info("[DUSK]", "Update Delays:", update_delays_time)
-    log.info("[DUSK]", "Update Music:", update_music_time)
-    log.info("[DUSK]", "Update Game:", update_game_time)
-    log.info("[DUSK]", "Render Game Time:", game_render_time)
-    log.info("[DUSK]", "Present Time:", render_time)
     // LOG MEMORY LEAKS
     for _, value in tracking_allocator.allocation_map {
         log.warn("[DUSK]", value.location, ": Leaked", value.size, "bytes!")
     }
+
+}
+
+@private should_draw_frame_info:bool
+
+toggle_draw_frame_info :: proc() {
+    should_draw_frame_info = !should_draw_frame_info
+}
+
+@private draw_frame_info :: proc(timings:Timings) {
+    FONT_SIZE :: 16
+    SPACING :: FONT_SIZE+2
+    X :: 10
+    COLOR :: rl.GREEN
+
+    y : i32 = 10
+    builder:strings.Builder
+
+    strings.builder_init(&builder, allocator = context.temp_allocator)
+    fmt.sbprint(&builder, "FPS:", rl.GetFPS())
+    rl.DrawText(strings.to_cstring(&builder), X, y, FONT_SIZE, COLOR)
+    y+=SPACING
+
+    strings.builder_init(&builder, allocator = context.temp_allocator)
+    fmt.sbprint(&builder, "Delays:", timings.update_delays_time)
+    rl.DrawText(strings.to_cstring(&builder), X, y, FONT_SIZE, COLOR)
+    y+=SPACING
+
+    strings.builder_init(&builder, allocator = context.temp_allocator)
+    fmt.sbprint(&builder, "Music:", timings.update_music_time)
+    rl.DrawText(strings.to_cstring(&builder), X, y, FONT_SIZE, COLOR)
+    y+=SPACING
+
+    strings.builder_init(&builder, allocator = context.temp_allocator)
+    fmt.sbprint(&builder, "Game Update:", timings.update_game_time)
+    rl.DrawText(strings.to_cstring(&builder), X, y, FONT_SIZE, COLOR)
+    y+=SPACING
+
+    strings.builder_init(&builder, allocator = context.temp_allocator)
+    fmt.sbprint(&builder, "Rendering:", timings.game_render_time)
+    rl.DrawText(strings.to_cstring(&builder), X, y, FONT_SIZE, COLOR)
+    y+=SPACING
+
+    strings.builder_init(&builder, allocator = context.temp_allocator)
+    fmt.sbprint(&builder, "Present Time:", timings.render_time)
+    rl.DrawText(strings.to_cstring(&builder), X, y, FONT_SIZE, COLOR)
+    y+=SPACING
+
+    strings.builder_init(&builder, allocator = context.temp_allocator)
+    fmt.sbprint(&builder, "Temp Allocator Free Time:", timings.allocator_free_time)
+    rl.DrawText(strings.to_cstring(&builder), X, y, FONT_SIZE, COLOR)
+    y+=SPACING
+}
+
+@private
+Timings :: struct {
+    start_time:time.Tick,
+    render_start_time:time.Tick,
+    update_data_time:time.Duration,
+    update_delays_time:time.Duration,
+    update_music_time:time.Duration,
+    update_game_time:time.Duration,
+    game_render_time:time.Duration,
+    render_time:time.Duration,
+    total_drawing_time:time.Duration,
+    allocator_free_time:time.Duration,
+}
+
+@private
+log_timings :: proc(timings:Timings) {
+    log.debug("[DUSK]", "Averaged Timings for the last", TIMING_FRAMES_TO_AVERAGE, "frames.")
+    log.debug("[DUSK]", "Delays:",                   timings.update_delays_time)
+    log.debug("[DUSK]", "Music:",                    timings.update_music_time)
+    log.debug("[DUSK]", "Game:",                     timings.update_game_time)
+    log.debug("[DUSK]", "Render Game:",              timings.game_render_time)
+    log.debug("[DUSK]", "Present:",                  timings.render_time)
+    log.debug("[DUSK]", "Temp Allocator Free Time:", timings.allocator_free_time)
 }
