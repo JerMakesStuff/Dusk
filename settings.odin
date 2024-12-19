@@ -3,6 +3,7 @@ package dusk
 import "core:log"
 import "core:encoding/ini"
 import "core:strconv"
+import "core:fmt"
 
 Settings :: struct {
     resolution:[2]i32,
