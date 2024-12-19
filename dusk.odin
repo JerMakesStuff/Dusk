@@ -5,12 +5,22 @@
 package dusk
 
 import "base:builtin"
-import "core:strings"
-import rl "vendor:raylib"
+
 import "core:log"
+import "core:mem"
+import "core:strings"
 import "core:time"
 
+import rl "vendor:raylib"
+
+V2ZERO :: rl.Vector2{0,0}
+
 run :: proc(game:^Game) {
+
+    default_allocator := context.allocator
+    tracking_allocator: mem.Tracking_Allocator
+    mem.tracking_allocator_init(&tracking_allocator, default_allocator)
+    context.allocator = mem.tracking_allocator(&tracking_allocator)
 
     context.logger = create_logger()
     context.user_ptr = game
@@ -26,7 +36,7 @@ run :: proc(game:^Game) {
         rl.SetConfigFlags({.FULLSCREEN_MODE})
     }
     
-    rl.InitWindow(game.settings.resolution.x, game.settings.resolution.y, strings.clone_to_cstring(game.name))
+    rl.InitWindow(game.settings.resolution.x, game.settings.resolution.y, strings.clone_to_cstring(game.name, context.temp_allocator))
     game.screen_size.x = rl.GetScreenWidth()
     game.screen_size.y = rl.GetScreenHeight()
     defer rl.CloseWindow()
@@ -146,6 +156,13 @@ run :: proc(game:^Game) {
         render_time = time.tick_since(start_time)
         total_drawing_time = time.tick_since(render_start_time)
         start_time = time.tick_now()
+        // CHECK FOR BAD FREES
+        if len(tracking_allocator.bad_free_array) > 0 {
+            for bad_free in tracking_allocator.bad_free_array {
+                log.error("[DUSK]", "Bad free at:", bad_free.location)
+            }
+            log.panic("[DUSK]", "Detected", len(tracking_allocator.bad_free_array), "bad frees!!")
+        }
 
         // FREE OUR TEMP ALLOCATOR AT THE END OF THE FRAME
         free_all(context.temp_allocator)
@@ -158,8 +175,8 @@ run :: proc(game:^Game) {
     log.info("[DUSK]", "Update Game:", update_game_time)
     log.info("[DUSK]", "Render Game Time:", game_render_time)
     log.info("[DUSK]", "Present Time:", render_time)
-    log.info("[DUSK]", "Total Drawing Time:", total_drawing_time)
-    log.info("[DUSK]", "Temp Allocator Free Time:", allocator_free_time)
+    // LOG MEMORY LEAKS
+    for _, value in tracking_allocator.allocation_map {
+        log.warn("[DUSK]", value.location, ": Leaked", value.size, "bytes!")
+    }
 }
-
-V2ZERO :: rl.Vector2{0,0}
