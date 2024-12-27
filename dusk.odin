@@ -8,6 +8,7 @@ import "base:builtin"
 
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:mem"
 import "core:strings"
 import "core:time"
@@ -31,43 +32,41 @@ run :: proc(game:^Game) {
     game.settings = load_settings("settings.ini")
 
     // INIT RAYLIB WINDOW
-    rl.SetConfigFlags({.WINDOW_RESIZABLE})
+    config_flags := rl.ConfigFlags{.WINDOW_RESIZABLE}
     if(game.settings.vsync) {
-        rl.SetConfigFlags({.VSYNC_HINT}) 
+        config_flags += {.VSYNC_HINT} 
     }
-    if(game.settings.fullscreen) {
-        rl.SetConfigFlags({.FULLSCREEN_MODE})
-    }
+    rl.SetConfigFlags(config_flags)
     
     rl.InitWindow(game.settings.resolution.x, game.settings.resolution.y, strings.clone_to_cstring(game.name, context.temp_allocator))
     game.screen_size.x = rl.GetScreenWidth()
     game.screen_size.y = rl.GetScreenHeight()
     defer rl.CloseWindow()
 
-    use_vertual_resolution := game.virtual_resolution.x != 0 && game.virtual_resolution.y != 0
-    renderTexture:rl.RenderTexture
-    renderTextureSrc:rl.Rectangle
-    renderTextureDest:= rl.Rectangle{0,0, cast(f32)game.screen_size.x, cast(f32)game.screen_size.y}
-    renderTextureAspect :f32 = 16/9
+    game.use_vertual_resolution = game.virtual_resolution.x != 0 && game.virtual_resolution.y != 0
+    game.renderTextureDest = rl.Rectangle{0,0, cast(f32)game.screen_size.x, cast(f32)game.screen_size.y}
+    game.renderTextureAspect = 16/9
     
-    if(use_vertual_resolution) {
+    if(game.use_vertual_resolution) {
         game.screen_size = game.virtual_resolution
     }
 
-    renderTexture = rl.LoadRenderTexture(game.screen_size.x, game.screen_size.y)
-    renderTextureSrc = rl.Rectangle{0,0,f32(renderTexture.texture.width),f32(-renderTexture.texture.height)}
-    renderTextureAspect = renderTextureSrc.width / -renderTextureSrc.height
+    game.renderTexture = rl.LoadRenderTexture(game.screen_size.x, game.screen_size.y)
+    game.renderTextureSrc = rl.Rectangle{0,0,f32(game.renderTexture.texture.width),f32(-game.renderTexture.texture.height)}
+    game.renderTextureAspect = game.renderTextureSrc.width / -game.renderTextureSrc.height
 
     // INIT RAYLIB AUDIO
     rl.InitAudioDevice()
     defer rl.CloseAudioDevice()
-    
+
+    if(game.settings.fullscreen) {
+        toggle_full_screen(game)
+    }
+
     // START GAME
     if !game->start() do return
     defer game->shutdown()
 
-    screenWidth := f32(rl.GetScreenWidth())
-    screenHeight := f32(rl.GetScreenHeight())
 
     timings:Timings
     prev_timings:[TIMING_FRAMES_TO_AVERAGE]Timings
@@ -82,18 +81,7 @@ run :: proc(game:^Game) {
         game.fps = int(rl.GetFPS())
 
         if rl.IsWindowResized() {
-            screenWidth = f32(rl.GetScreenWidth())
-            screenHeight = f32(rl.GetScreenHeight())
-            if !use_vertual_resolution {
-                game.screen_size.x = cast(i32)screenWidth
-                game.screen_size.y = cast(i32)screenHeight
-                renderTextureDest.width = screenWidth
-                renderTextureDest.height = screenHeight
-            } else {
-                renderTextureDest.width = screenHeight*renderTextureAspect
-                renderTextureDest.height = screenHeight
-                renderTextureDest.x = screenWidth / 2 - renderTextureDest.width / 2
-            }
+            update_render_texture(game)
         }       
 
         timings.update_data_time = time.tick_since(timings.start_time)
@@ -122,7 +110,7 @@ run :: proc(game:^Game) {
         // BEGIN DRAWING
         timings.render_start_time = time.tick_now()
         {
-            rl.BeginTextureMode(renderTexture)
+            rl.BeginTextureMode(game.renderTexture)
             defer rl.EndTextureMode()
 
             rl.ClearBackground(game.clear_color)
@@ -133,12 +121,13 @@ run :: proc(game:^Game) {
             }
             timings.game_render_time = time.tick_since(timings.start_time)
         }        
-        
+
         timings.start_time = time.tick_now()
         {
+
             rl.BeginDrawing()
             defer rl.EndDrawing()
-
+            rl.ClearBackground({0.0,0.0,0.0,255.0})
             {
                 if(game.use_post_processing_shader) {
                     rl.BeginShaderMode(game.post_processing_shader)
@@ -146,7 +135,7 @@ run :: proc(game:^Game) {
                 defer if(game.use_post_processing_shader) {
                     rl.EndShaderMode()
                 }
-                rl.DrawTexturePro(renderTexture.texture, renderTextureSrc, renderTextureDest, V2ZERO, 0, rl.WHITE)
+                rl.DrawTexturePro(game.renderTexture.texture, game.renderTextureSrc, game.renderTextureDest, V2ZERO, 0, rl.WHITE)
             }
 
             averaged_timings:Timings
@@ -203,6 +192,17 @@ run :: proc(game:^Game) {
         }
     }
 
+    for pop_state(game) {}
+    game->shutdown()
+
+    // CHECK FOR BAD FREES
+    if len(tracking_allocator.bad_free_array) > 0 {
+        for bad_free in tracking_allocator.bad_free_array {
+            log.error("[DUSK]", "Bad free at:", bad_free.location)
+        }
+        log.panic("[DUSK]", "Detected", len(tracking_allocator.bad_free_array), "bad frees!!")
+    }
+
     // LOG MEMORY LEAKS
     for _, value in tracking_allocator.allocation_map {
         log.warn("[DUSK]", value.location, ": Leaked", value.size, "bytes!")
@@ -210,17 +210,41 @@ run :: proc(game:^Game) {
 
 }
 
-@private should_draw_frame_info:bool
+@private prev_windowed_res := [2]i32{}
+toggle_full_screen :: proc(game:^Game) {
+    rl.ToggleBorderlessWindowed()
+    update_render_texture(game)
+}
+
+@private
+update_render_texture :: proc(game:^Game) {
+    screenWidth := f32(rl.GetScreenWidth())
+    screenHeight := f32(rl.GetScreenHeight())
+    
+    if game.use_vertual_resolution {
+        game.renderTextureDest.width = math.round(screenHeight * game.renderTextureAspect)
+        game.renderTextureDest.height = screenHeight
+        game.renderTextureDest.x = math.round(screenWidth / 2 - game.renderTextureDest.width / 2)
+    } else {
+        game.screen_size.x = cast(i32)screenWidth
+        game.screen_size.y = cast(i32)screenHeight        
+        rl.UnloadRenderTexture(game.renderTexture)
+        game.renderTexture = rl.LoadRenderTexture(game.screen_size.x, game.screen_size.y)        
+        game.renderTextureDest.width  = screenWidth
+        game.renderTextureDest.height = screenHeight
+    }
+}
 
 toggle_draw_frame_info :: proc() {
     should_draw_frame_info = !should_draw_frame_info
 }
 
+@private should_draw_frame_info:bool
 @private draw_frame_info :: proc(timings:Timings) {
     FONT_SIZE :: 16
-    SPACING :: FONT_SIZE+2
-    X :: 10
-    COLOR :: rl.GREEN
+    SPACING   :: FONT_SIZE+2
+    X         :: 10
+    COLOR     :: rl.GREEN
 
     y : i32 = 10
     builder:strings.Builder

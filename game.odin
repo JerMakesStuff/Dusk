@@ -19,6 +19,11 @@ Game :: struct {
     clear_color:rl.Color,
     post_processing_shader:rl.Shader,
     use_post_processing_shader:bool,
+    renderTexture:rl.RenderTexture,
+    renderTextureDest:rl.Rectangle,
+    renderTextureSrc:rl.Rectangle,
+    renderTextureAspect:f32,
+    use_vertual_resolution:bool,
 
     fps:int,
 
@@ -48,5 +53,8 @@ pop_state :: proc(game:^Game) -> bool {
     if game.states[game.state_count-1].exit != nil do game.states[game.state_count-1]->exit(game)
     game.states[game.state_count-1] = nil
     game.state_count -= 1
+    if game.state_count > 0 && game.states[game.state_count-1].enter != nil {
+        game.states[game.state_count-1]->enter(game)
+    }
     return true
 }
