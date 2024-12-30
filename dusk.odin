@@ -52,6 +52,7 @@ run :: proc(game:^Game) {
     }
 
     game.renderTexture = rl.LoadRenderTexture(game.screen_size.x, game.screen_size.y)
+    rl.GenTextureMipmaps(&game.renderTexture.texture)
     game.renderTextureSrc = rl.Rectangle{0,0,f32(game.renderTexture.texture.width),f32(-game.renderTexture.texture.height)}
     game.renderTextureAspect = game.renderTextureSrc.width / -game.renderTextureSrc.height
 
@@ -229,7 +230,8 @@ update_render_texture :: proc(game:^Game) {
         game.screen_size.x = cast(i32)screenWidth
         game.screen_size.y = cast(i32)screenHeight        
         rl.UnloadRenderTexture(game.renderTexture)
-        game.renderTexture = rl.LoadRenderTexture(game.screen_size.x, game.screen_size.y)        
+        game.renderTexture = rl.LoadRenderTexture(game.screen_size.x, game.screen_size.y)     
+        rl.GenTextureMipmaps(&game.renderTexture.texture)   
         game.renderTextureDest.width  = screenWidth
         game.renderTextureDest.height = screenHeight
     }
