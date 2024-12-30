@@ -108,6 +108,14 @@ run :: proc(game:^Game) {
         }
         timings.update_game_time = time.tick_since(timings.start_time)
     
+        new_current_state :=  game.states[game.state_count-1] if game.state_count > 0 else nil
+        if current_state != new_current_state {
+            rl.BeginDrawing()
+            rl.ClearBackground(rl.BLACK)
+            rl.EndDrawing()
+            continue
+        }        
+
         // BEGIN DRAWING
         timings.render_start_time = time.tick_now()
         {
